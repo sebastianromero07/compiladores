@@ -90,7 +90,17 @@ class LR1Parser:
                 
                 if len(self.first_sets[lhs]) != old_size:
                     changed = True
-    
+    def compute_first_table(self):
+        """Tabla FIRST por no terminal (no por producción)."""
+        self.first_table = []
+        # ordenar los no terminales para que el orden sea estable
+        for nt in sorted(self.grammar.non_terminals):
+            first_of_nt = sorted(self.first_sets.get(nt, []))
+            self.first_table.append({
+                "nonterminal": nt,
+                "first": first_of_nt
+            })
+
     def first_of_string(self, symbols):
         """Calcula FIRST de una secuencia de símbolos"""
         if not symbols:
@@ -152,7 +162,7 @@ class LR1Parser:
     def build_parser(self):
         """Construye los estados y las tablas del parser LR(1)"""
         self.compute_first_sets()
-        
+        self.compute_first_table()
         # Estado inicial: S' -> •S, $
         augmented_start = self.grammar.start_symbol + "'"
         initial_item = Item(augmented_start, [self.grammar.start_symbol], 0, '$')
@@ -369,11 +379,13 @@ def handle_parse_request():
         return jsonify({
             "accepted": accepted,
             "first_sets": {k: list(v) for k, v in parser.first_sets.items()},
+            "first_table": parser.first_table,     # 👈 NUEVO
             "canonical_collection": states_data,
             "parsing_table_action": parser.action_table,
             "parsing_table_goto": goto_table_json,
             "parsing_steps": parse_steps
         })
+
 
     except Exception as e:
         import traceback

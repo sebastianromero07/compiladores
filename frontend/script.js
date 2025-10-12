@@ -76,7 +76,8 @@ function displayResults(data) {
 
   // Mostrar conjuntos FIRST
   displayFirstSets(data.first_sets);
-
+  //mostrar tabla first
+  displayFirstTable(data.first_table);
   // Mostrar resultados
   document.getElementById('result').style.display = 'block';
 }
@@ -246,7 +247,38 @@ function displayFirstSets(firstSets) {
   firstSetsContainer.appendChild(table);
 }
 
-// ...existing code...
+function displayFirstTable(firstTable) {
+  const container = document.getElementById('firstTable');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (!firstTable || firstTable.length === 0) {
+    container.innerHTML = '<p class="no-data">No hay tabla FIRST para mostrar.</p>';
+    return;
+  }
+
+  const table = document.createElement('table');
+  table.className = 'first-sets-table';
+
+  const headerRow = document.createElement('tr');
+  headerRow.innerHTML = `
+    <th>Nonterminal</th>
+    <th>FIRST</th>
+  `;
+  table.appendChild(headerRow);
+
+  firstTable.forEach(row => {
+    const tr = document.createElement('tr');
+    const firstList = Array.isArray(row.first) ? row.first.join(', ') : '';
+    tr.innerHTML = `
+      <td><code>${row.nonterminal}</code></td>
+      <td><code>{ ${firstList} }</code></td>
+    `;
+    table.appendChild(tr);
+  });
+
+  container.appendChild(table);
+}
 
 // Mejorar la experiencia del usuario con atajos de teclado
 document.addEventListener('keydown', (e) => {
