@@ -1,7 +1,6 @@
 import os
-from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS
-from lark import Lark, exceptions
+from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask_cors import CORS 
 
 # Obtener la ruta absoluta del directorio actual
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -12,74 +11,303 @@ app = Flask(__name__,
             template_folder=os.path.join(BASE_DIR, 'frontend'))
 CORS(app)
 
+# --- Implementación del Parser LR(1) ---
 
-
-# --- Lógica del Parser (Adaptada para Lark) ---
-
-def format_lark_states(parser):
-    """
-    Extrae y formatea los estados (colección canónica) y las transiciones 
-    del objeto parser de Lark.
-    """
-    formatted_states = []
-    for i, state in parser.analysis.states.items():
-        state_info = {
-            "id": i,
-            "items": [],
-            "transitions": {}
-        }
-        # Formatear los ítems del estado
-        for item in state:
-            # Recrear la representación textual de la regla
-            rule_text = f"{item.origin.name} -> {' '.join(map(str, item.origin.expansion))} "
-            # Insertar el punto
-            rule_parts = rule_text.split()
-            rule_parts.insert(item.ptr + 2, '•')
-            item_text = ' '.join(rule_parts)
-            # El lookahead se extrae del final del ítem
-            lookahead = sorted(list(item.lookahead))
-            state_info["items"].append(f"[{item_text}, {', '.join(lookahead)}]")
+class Grammar:
+    def __init__(self):
+        self.productions = []
+        self.start_symbol = None
+        self.terminals = set()
+        self.non_terminals = set()
         
-        # Formatear las transiciones
-        for symbol, next_state_id in state.transitions.items():
-            state_info["transitions"][symbol] = next_state_id
-            
-        formatted_states.append(state_info)
-    return formatted_states
+    def add_production(self, lhs, rhs):
+        if self.start_symbol is None:
+            self.start_symbol = lhs
+        self.non_terminals.add(lhs)
+        self.productions.append((lhs, rhs))
+        
+        for symbol in rhs:
+            if symbol.islower() or symbol in ['(', ')', '+', '*', '/', '-', '=', ';', ',', 'ε']:
+                self.terminals.add(symbol)
+            else:
+                self.non_terminals.add(symbol)
 
-def format_lark_table(parser):
-    """
-    Extrae y formatea las tablas ACTION y GOTO del objeto parser de Lark.
-    """
-    action_table = {}
-    goto_table = {}
+class Item:
+    def __init__(self, lhs, rhs, dot_pos, lookahead):
+        self.lhs = lhs
+        self.rhs = rhs
+        self.dot_pos = dot_pos
+        self.lookahead = lookahead
+        
+    def __str__(self):
+        rhs_with_dot = self.rhs[:self.dot_pos] + ['•'] + self.rhs[self.dot_pos:]
+        return f"[{self.lhs} -> {' '.join(rhs_with_dot)}, {self.lookahead}]"
     
-    # La tabla de acciones de Lark combina SHIFT y REDUCE
-    for state_id, actions in parser.analysis.action.items():
-        action_table[state_id] = {}
-        goto_table[state_id] = {}
-        for symbol, action in actions.items():
-            if isinstance(action, int): # Es un SHIFT
-                action_table[state_id][symbol] = f"s{action}"
-            else: # Es un REDUCE
-                # action[1] contiene la regla (Rule object)
-                rule = action[1]
-                # Para encontrar el índice de la regla, necesitamos buscarlo.
-                # Lark no provee un índice directo, así que lo representamos con la regla misma.
-                rule_text = f"{rule.origin.name} -> {' '.join(map(str, rule.expansion))}"
-                action_table[state_id][symbol] = f"reduce: {rule_text}"
-
-    # La tabla goto es más directa
-    for state_id, gotos in parser.analysis.goto.items():
-        for symbol, next_state_id in gotos.items():
-            goto_table[state_id][symbol] = next_state_id
-            
-    return action_table, goto_table
+    def __eq__(self, other):
+        return (self.lhs == other.lhs and 
+                self.rhs == other.rhs and 
+                self.dot_pos == other.dot_pos and 
+                self.lookahead == other.lookahead)
     
+    def __hash__(self):
+        return hash((self.lhs, tuple(self.rhs), self.dot_pos, self.lookahead))
 
-# --- Endpoint de la API ---
+class LR1Parser:
+    def __init__(self, grammar):
+        self.grammar = grammar
+        self.first_sets = {}
+        self.states = []
+        self.goto_table = {}
+        self.action_table = {}
+        self.build_parser()
+    
+    def compute_first_sets(self):
+        """Calcula los conjuntos FIRST para todos los símbolos"""
+        # Inicializar FIRST sets
+        for terminal in self.grammar.terminals:
+            self.first_sets[terminal] = {terminal}
+        
+        for non_terminal in self.grammar.non_terminals:
+            self.first_sets[non_terminal] = set()
+        
+        # Iterativo hasta que no haya cambios
+        changed = True
+        while changed:
+            changed = False
+            for lhs, rhs in self.grammar.productions:
+                old_size = len(self.first_sets[lhs])
+                
+                if not rhs or rhs == ['ε']:  # Producción vacía
+                    self.first_sets[lhs].add('ε')
+                else:
+                    for symbol in rhs:
+                        self.first_sets[lhs].update(self.first_sets[symbol] - {'ε'})
+                        if 'ε' not in self.first_sets[symbol]:
+                            break
+                    else:
+                        # Todos los símbolos derivan ε
+                        self.first_sets[lhs].add('ε')
+                
+                if len(self.first_sets[lhs]) != old_size:
+                    changed = True
+    
+    def first_of_string(self, symbols):
+        """Calcula FIRST de una secuencia de símbolos"""
+        if not symbols:
+            return {'ε'}
+        
+        result = set()
+        for symbol in symbols:
+            first_symbol = self.first_sets.get(symbol, {symbol})
+            result.update(first_symbol - {'ε'})
+            if 'ε' not in first_symbol:
+                break
+        else:
+            result.add('ε')
+        
+        return result
+    
+    def closure(self, items):
+        """Calcula la clausura de un conjunto de ítems"""
+        closure_set = set(items)
+        
+        changed = True
+        while changed:
+            changed = False
+            new_items = set()
+            
+            for item in closure_set:
+                if item.dot_pos < len(item.rhs):
+                    next_symbol = item.rhs[item.dot_pos]
+                    if next_symbol in self.grammar.non_terminals:
+                        # Beta es lo que sigue después del símbolo
+                        beta = item.rhs[item.dot_pos + 1:] + [item.lookahead]
+                        first_beta = self.first_of_string(beta)
+                        
+                        for lhs, rhs in self.grammar.productions:
+                            if lhs == next_symbol:
+                                for lookahead in first_beta:
+                                    if lookahead != 'ε':
+                                        new_item = Item(lhs, rhs, 0, lookahead)
+                                        if new_item not in closure_set:
+                                            new_items.add(new_item)
+                                            changed = True
+            
+            closure_set.update(new_items)
+        
+        return closure_set
+    
+    def goto(self, items, symbol):
+        """Calcula GOTO(items, symbol)"""
+        goto_items = set()
+        
+        for item in items:
+            if (item.dot_pos < len(item.rhs) and 
+                item.rhs[item.dot_pos] == symbol):
+                new_item = Item(item.lhs, item.rhs, item.dot_pos + 1, item.lookahead)
+                goto_items.add(new_item)
+        
+        return self.closure(goto_items)
+    
+    def build_parser(self):
+        """Construye los estados y las tablas del parser LR(1)"""
+        self.compute_first_sets()
+        
+        # Estado inicial: S' -> •S, $
+        augmented_start = self.grammar.start_symbol + "'"
+        initial_item = Item(augmented_start, [self.grammar.start_symbol], 0, '$')
+        initial_state = self.closure({initial_item})
+        
+        self.states = [initial_state]
+        unmarked = [0]
+        
+        # Construir todos los estados
+        while unmarked:
+            state_id = unmarked.pop(0)
+            current_state = self.states[state_id]
+            
+            # Encontrar todos los símbolos que pueden seguir al punto
+            symbols = set()
+            for item in current_state:
+                if item.dot_pos < len(item.rhs):
+                    symbols.add(item.rhs[item.dot_pos])
+            
+            # Para cada símbolo, calcular GOTO
+            for symbol in symbols:
+                goto_state = self.goto(current_state, symbol)
+                if goto_state:
+                    # Buscar si este estado ya existe
+                    existing_state_id = None
+                    for i, state in enumerate(self.states):
+                        if state == goto_state:
+                            existing_state_id = i
+                            break
+                    
+                    if existing_state_id is None:
+                        # Nuevo estado
+                        new_state_id = len(self.states)
+                        self.states.append(goto_state)
+                        unmarked.append(new_state_id)
+                        self.goto_table[(state_id, symbol)] = new_state_id
+                    else:
+                        self.goto_table[(state_id, symbol)] = existing_state_id
+        
+        # Construir las tablas ACTION y GOTO
+        self.build_action_table()
+    
+    def build_action_table(self):
+        """Construye la tabla ACTION"""
+        for state_id, state in enumerate(self.states):
+            self.action_table[state_id] = {}
+            
+            for item in state:
+                if item.dot_pos < len(item.rhs):
+                    # SHIFT
+                    next_symbol = item.rhs[item.dot_pos]
+                    if next_symbol in self.grammar.terminals:
+                        if (state_id, next_symbol) in self.goto_table:
+                            next_state = self.goto_table[(state_id, next_symbol)]
+                            self.action_table[state_id][next_symbol] = ('shift', next_state)
+                else:
+                    # REDUCE o ACCEPT
+                    if item.lhs == self.grammar.start_symbol + "'" and item.lookahead == '$':
+                        self.action_table[state_id]['$'] = ('accept', None)
+                    else:
+                        # Encontrar el número de la producción
+                        prod_num = None
+                        for i, (lhs, rhs) in enumerate(self.grammar.productions):
+                            if lhs == item.lhs and rhs == item.rhs:
+                                prod_num = i
+                                break
+                        
+                        if prod_num is not None:
+                            self.action_table[state_id][item.lookahead] = ('reduce', prod_num)
+    
+    def parse(self, input_string):
+        """Analiza una cadena usando el parser LR(1)"""
+        tokens = input_string.split() + ['$']
+        stack = [0]  # Pila de estados
+        steps = []
+        
+        i = 0
+        while i < len(tokens):
+            state = stack[-1]
+            token = tokens[i]
+            
+            steps.append({
+                "stack": str(stack),
+                "input": ' '.join(tokens[i:]),
+                "action": f"Estado {state}, símbolo {token}"
+            })
+            
+            if state not in self.action_table or token not in self.action_table[state]:
+                steps.append({
+                    "stack": str(stack),
+                    "input": ' '.join(tokens[i:]),
+                    "action": f"Error: No hay acción definida para estado {state} y símbolo {token}"
+                })
+                return False, steps
+            
+            action, value = self.action_table[state][token]
+            
+            if action == 'shift':
+                stack.append(value)
+                i += 1
+                steps.append({
+                    "stack": str(stack),
+                    "input": ' '.join(tokens[i:]),
+                    "action": f"Shift {value}"
+                })
+            elif action == 'reduce':
+                lhs, rhs = self.grammar.productions[value]
+                # Pop 2 * |rhs| elementos (estado y símbolo)
+                for _ in range(len(rhs)):
+                    if stack:
+                        stack.pop()
+                
+                # GOTO
+                current_state = stack[-1] if stack else 0
+                if (current_state, lhs) in self.goto_table:
+                    stack.append(self.goto_table[(current_state, lhs)])
+                
+                steps.append({
+                    "stack": str(stack),
+                    "input": ' '.join(tokens[i:]),
+                    "action": f"Reduce por {lhs} -> {' '.join(rhs)}"
+                })
+            elif action == 'accept':
+                steps.append({
+                    "stack": str(stack),
+                    "input": '$',
+                    "action": "Accept - Cadena aceptada"
+                })
+                return True, steps
+        
+        return False, steps
 
-from flask import render_template
+def parse_grammar(grammar_text):
+    """Convierte la gramática de texto al objeto Grammar"""
+    grammar = Grammar()
+    
+    for line in grammar_text.strip().split('\n'):
+        line = line.strip()
+        if not line or '->' not in line:
+            continue
+        
+        lhs, rhs = line.split('->', 1)
+        lhs = lhs.strip()
+        rhs = rhs.strip()
+        
+        if rhs == 'ε' or rhs == '':
+            rhs_symbols = ['ε']
+        else:
+            rhs_symbols = rhs.split()
+        
+        grammar.add_production(lhs, rhs_symbols)
+    
+    return grammar
+
+# --- Endpoints de la API ---
 
 @app.route('/')
 def index():
@@ -92,95 +320,66 @@ def test():
     exists = os.path.exists(path)
     return f"Archivo index.html existe: {exists} en {path}"
 
+@app.route('/<path:filename>')
+def serve_static(filename):
+    return send_from_directory('frontend', filename)
 
 @app.route('/parse', methods=['POST'])
 def handle_parse_request():
     data = request.json
-    grammar = data.get('grammar')
+    grammar_text = data.get('grammar')
     input_string = data.get('input_string')
 
-    if not grammar:
+    if not grammar_text:
         return jsonify({"error": "La gramática no puede estar vacía."}), 400
 
     try:
-        # 1. Crear el parser LR(1) con Lark
-        # El start symbol se infiere como el LHS de la primera regla
-        start_symbol = grammar.strip().split('\n')[0].split('->')[0].strip()
+        # Parsear la gramática
+        grammar = parse_grammar(grammar_text)
         
-        # Lark necesita que los no-terminales en mayúsculas no estén entre comillas
-        # y los terminales en minúsculas. Ajustamos la gramática si es necesario.
-        # Esta es una simplificación, gramáticas complejas podrían requerir más pre-procesamiento.
+        # Crear el parser LR(1)
+        parser = LR1Parser(grammar)
         
-        lark_parser = Lark(grammar, parser='lr', start=start_symbol, keep_all_tokens=True)
-        
-        # 2. Extraer los datos del parser para visualización
-        states_data = format_lark_states(lark_parser.parser)
-        action_table, goto_table = format_lark_table(lark_parser.parser)
-        
-        # Lark no expone públicamente los conjuntos First/Follow de una manera simple,
-        # ya que son parte del proceso de construcción interno.
-        # Dejaremos estas secciones vacías, ya que la herramienta principal es Lark.
-        first_sets = {"info": "Lark no expone directamente los First Sets."}
-        follow_sets = {"info": "Lark no expone directamente los Follow Sets."}
-
-        # 3. Analizar la cadena de entrada y trazar los pasos
-        parse_steps = []
-        try:
-            # Usamos el InteractiveParser para seguir los pasos
-            interactive_parser = lark_parser.parse_interactive(input_string)
-            stack_symbols = []
-            for token in interactive_parser.iter_parse():
-                action = interactive_parser.parser_state.value
-                
-                # Estado actual de la pila de Lark
-                stack_str = " ".join(str(s) for s in interactive_parser.parser_state.state_stack)
-                
-                # Símbolos en la pila (aproximación)
-                if token.type == '$END':
-                    input_rem = '$'
-                else:
-                    stack_symbols.append(token.value)
-                    input_rem = " ".join(t.value for t in interactive_parser.tokens)
-                
-                parse_steps.append({
-                    "stack": stack_str,
-                    "input": input_rem,
-                    "action": f"Shift '{token.value}' ({token.type})"
-                })
-            
-            # Último paso: Aceptar
-            stack_str = " ".join(str(s) for s in interactive_parser.parser_state.state_stack)
-            parse_steps.append({"stack": stack_str, "input": "$", "action": "Accept"})
+        # Analizar la cadena
+        if input_string:
+            accepted, parse_steps = parser.parse(input_string)
+        else:
             accepted = True
-
-        except (exceptions.UnexpectedToken, exceptions.UnexpectedCharacters) as e:
-            accepted = False
-            stack_str = " ".join(str(s) for s in getattr(e, 'parser_state',_).state_stack) if hasattr(e, 'parser_state') else 'N/A'
-            
-            parse_steps.append({
-                "stack": stack_str,
-                "input": e.token if hasattr(e, 'token') else 'N/A',
-                "action": f"Error: {e}"
-            })
-
-        # 4. Enviar todos los datos de vuelta como JSON
+            parse_steps = [{
+                "stack": "N/A",
+                "input": "Cadena vacía",
+                "action": "No hay cadena para analizar"
+            }]
+        
+        # Formatear los datos para el frontend
+        states_data = []
+        for i, state in enumerate(parser.states):
+            state_info = {
+                "id": i,
+                "items": [str(item) for item in state]
+            }
+            states_data.append(state_info)
+        
+        # Convertir goto_table para JSON (tuplas a strings)
+        goto_table_json = {}
+        for (state_id, symbol), target_state in parser.goto_table.items():
+            key = f"{state_id},{symbol}"
+            goto_table_json[key] = target_state
+        
         return jsonify({
             "accepted": accepted,
-            "first_sets": first_sets,
-            "follow_sets": follow_sets,
+            "first_sets": {k: list(v) for k, v in parser.first_sets.items()},
             "canonical_collection": states_data,
-            "parsing_table_action": action_table,
-            "parsing_table_goto": goto_table,
+            "parsing_table_action": parser.action_table,
+            "parsing_table_goto": goto_table_json,
             "parsing_steps": parse_steps
         })
 
     except Exception as e:
-        # Capturar errores de gramática de Lark u otros problemas
-        return jsonify({"error": f"Error al procesar la gramática o la cadena: {str(e)}"}), 500
-
-
+        import traceback
+        print("Error details:", traceback.format_exc())  # Para debug
+        return jsonify({"error": f"Error al procesar la gramática: {str(e)}"}), 500
+    
 # --- Iniciar el servidor ---
 if __name__ == '__main__':
-    # Correr en modo debug para ver errores detallados durante el desarrollo
-    # El host '0.0.0.0' lo hace accesible en la red local
     app.run(host='0.0.0.0', port=5000, debug=True)
