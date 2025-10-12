@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LR(1) Parser Visualizer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>LR(1) Parser Visualizer</h1>
+
+    <div class="input-section">
+      <div class="input-box">
+        <label for="grammar">Gramática (formato Lark):</label>
+        <textarea id="grammar" placeholder="S -> A B
+A -> 'a'
+B -> 'b'"></textarea>
+      </div>
+      <div class="input-box">
+        <label for="inputString">Cadena de entrada:</label>
+        <textarea id="inputString" placeholder="a b"></textarea>
+      </div>
+    </div>
+
+    <div style="text-align: center; margin-bottom: 20px;">
+      <button id="parseBtn">Analizar</button>
+    </div>
+
+    <div id="result" style="display: none;">
+      <div class="result-section">
+        <div class="result-box">
+          <h2>Resultado del Parsing</h2>
+          <p id="acceptance"></p>
+          <h3>Pasos del parsing:</h3>
+          <ol class="steps-list" id="parsingSteps"></ol>
+        </div>
+        <div class="result-box">
+          <h2>Tabla ACTION</h2>
+          <div class="table-container">
+            <table id="actionTable">
+              <thead><tr id="actionHeader"></tr></thead>
+              <tbody id="actionBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
