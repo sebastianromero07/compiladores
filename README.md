@@ -48,7 +48,7 @@ Tener pip (el gestor de paquetes de Python) disponible en tu terminal.
 Pasos
 1. Clona o descarga este repositorio:
 
-git clone https://URL_DE_TU_REPOSITORIO.git
+git clone [https://github.com/sebastianromero07/compiladores.git](https://github.com/sebastianromero07/compiladores.git)
 cd nombre-del-directorio
 
 2. Crea y activa un entorno virtual (Recomendado):
