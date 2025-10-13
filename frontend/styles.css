@@ -5,6 +5,13 @@
   padding: 0;
   box-sizing: border-box;
 }
+.graph-container {
+  background: #fafafa;
+  border: 1px solid #eaeaea;
+  border-radius: 12px;
+  padding: 12px;
+  overflow: auto;
+}
 
 :root {
   --primary-color: #2563eb;
@@ -462,4 +469,18 @@ body {
   font-style: italic;
   text-align: center;
   padding: 2rem;
+}
+
+.goto-cell {
+  font-weight: 600;
+  color: #111827;
+}
+
+.parsing-table th {
+  background: #f8fafc;
+  border-bottom: 2px solid #000;
+}
+
+.parsing-table td {
+  border-right: 1px solid #ddd;
 }
