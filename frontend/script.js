@@ -72,7 +72,7 @@ function displayResults(data) {
   displayActionTable(data.parsing_table_action);
 
   // Mostrar estados (colección canónica)
-  displayStates(data.canonical_collection);
+ 
 
   // Mostrar conjuntos FIRST
   displayFirstSets(data.first_sets);

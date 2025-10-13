@@ -1,7 +1,7 @@
 import os
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS 
-
+import re
 # Obtener la ruta absoluta del directorio actual
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
@@ -122,22 +122,28 @@ class LR1Parser:
         return result
     
     def closure(self, items):
-        """Calcula la clausura de un conjunto de ítems"""
+        """Calcula la clausura LR(1) sin autoexpandir el símbolo aumentado."""
         closure_set = set(items)
-        
+        base_start = self.grammar.start_symbol.rstrip("'")
+        augmented_start = base_start + "'"
+
         changed = True
         while changed:
             changed = False
             new_items = set()
-            
+
             for item in closure_set:
                 if item.dot_pos < len(item.rhs):
                     next_symbol = item.rhs[item.dot_pos]
+
                     if next_symbol in self.grammar.non_terminals:
-                        # Beta es lo que sigue después del símbolo
+                        # Evita expandir el símbolo aumentado sobre sí mismo
+                        if next_symbol == augmented_start and item.lhs == augmented_start:
+                            continue
+
                         beta = item.rhs[item.dot_pos + 1:] + [item.lookahead]
                         first_beta = self.first_of_string(beta)
-                        
+
                         for lhs, rhs in self.grammar.productions:
                             if lhs == next_symbol:
                                 for lookahead in first_beta:
@@ -146,11 +152,12 @@ class LR1Parser:
                                         if new_item not in closure_set:
                                             new_items.add(new_item)
                                             changed = True
-            
+
             closure_set.update(new_items)
-        
         return closure_set
-    
+
+
+
     def goto(self, items, symbol):
         """Calcula GOTO(items, symbol)"""
         goto_items = set()
@@ -164,79 +171,90 @@ class LR1Parser:
         return self.closure(goto_items)
     
     def build_parser(self):
-        """Construye los estados y las tablas del parser LR(1)"""
+        """Construye los estados y tablas del parser LR(1)."""
         self.compute_first_sets()
         self.compute_first_table()
-        # Estado inicial: S' -> •S, $
-        augmented_start = self.grammar.start_symbol + "'"
-        initial_item = Item(augmented_start, [self.grammar.start_symbol], 0, '$')
+
+        # Determinar el símbolo aumentado
+        if self.grammar.start_symbol.endswith("'"):
+            augmented_start = self.grammar.start_symbol
+            base_symbol = self.grammar.start_symbol.rstrip("'")
+        else:
+            base_symbol = self.grammar.start_symbol
+            augmented_start = base_symbol + "'"
+
+        # Agregar la producción aumentada solo si no existe ya
+        if not any(lhs.strip() == augmented_start for lhs, _ in self.grammar.productions):
+            self.grammar.productions.insert(0, (augmented_start, [base_symbol]))
+
+        # Estado inicial
+        initial_item = Item(augmented_start, [base_symbol], 0, '$')
         initial_state = self.closure({initial_item})
-        
+
         self.states = [initial_state]
         unmarked = [0]
-        
-        # Construir todos los estados
+
+        # Construcción de estados
         while unmarked:
             state_id = unmarked.pop(0)
             current_state = self.states[state_id]
-            
-            # Encontrar todos los símbolos que pueden seguir al punto
-            symbols = set()
-            for item in current_state:
-                if item.dot_pos < len(item.rhs):
-                    symbols.add(item.rhs[item.dot_pos])
-            
-            # Para cada símbolo, calcular GOTO
+
+            symbols = {item.rhs[item.dot_pos] for item in current_state if item.dot_pos < len(item.rhs)}
+
             for symbol in symbols:
                 goto_state = self.goto(current_state, symbol)
-                if goto_state and len(goto_state) > 0:  
-    # Buscar si este estado ya existe
-                    existing_state_id = None
-                    for i, state in enumerate(self.states):
-                        if state == goto_state:
-                            existing_state_id = i
-                            break
+                if not goto_state:
+                    continue
 
-                    
-                    if existing_state_id is None:
-                        # Nuevo estado
-                        new_state_id = len(self.states)
-                        self.states.append(goto_state)
-                        unmarked.append(new_state_id)
-                        self.goto_table[(state_id, symbol)] = new_state_id
-                    else:
-                        self.goto_table[(state_id, symbol)] = existing_state_id
-        
-        # Construir las tablas ACTION y GOTO
+                existing_id = next((i for i, s in enumerate(self.states) if s == goto_state), None)
+                if existing_id is None:
+                    new_id = len(self.states)
+                    self.states.append(goto_state)
+                    unmarked.append(new_id)
+                    self.goto_table[(state_id, symbol)] = new_id
+                else:
+                    self.goto_table[(state_id, symbol)] = existing_id
+
+        # Finalmente construir ACTION
         self.build_action_table()
+
     
     def build_action_table(self):
-        """Construye la tabla ACTION"""
+        """Construye la tabla ACTION robusta (aceptación segura y sin duplicados)."""
+        base_start = self.grammar.start_symbol.rstrip("'")
+        augmented_start = base_start + "'"
+
         for state_id, state in enumerate(self.states):
             self.action_table[state_id] = {}
-            
+
             for item in state:
+                # --- 1️⃣ Acción SHIFT ---
                 if item.dot_pos < len(item.rhs):
-                    # SHIFT
                     next_symbol = item.rhs[item.dot_pos]
                     if next_symbol in self.grammar.terminals:
                         if (state_id, next_symbol) in self.goto_table:
                             next_state = self.goto_table[(state_id, next_symbol)]
                             self.action_table[state_id][next_symbol] = ('shift', next_state)
-                else:
-                    # REDUCE o ACCEPT
-                    if item.lhs == self.grammar.start_symbol + "'" and item.lookahead == '$':
-                        self.action_table[state_id]['$'] = ('accept', None)
-                    else:
-                        # Encontrar el número de la producción
-                        prod_num = None
-                        for i, (lhs, rhs) in enumerate(self.grammar.productions):
-                            if lhs == item.lhs and rhs == item.rhs:
-                                prod_num = i
-                                break
-                        
-                        if prod_num is not None:
-                            self.action_table[state_id][item.lookahead] = ('reduce', prod_num)
+                    continue
+
+                # --- 2️⃣ Acción ACCEPT ---
+                # Acepta solo si es el símbolo inicial aumentado completo
+                if (
+                    item.dot_pos == len(item.rhs)
+                    and item.lookahead == '$'
+                    and item.lhs in {augmented_start, self.grammar.start_symbol}
+                ):
+                    self.action_table[state_id]['$'] = ('accept', None)
+                    continue
+
+
+                # --- 3️⃣ Acción REDUCE ---
+                # Buscar producción correspondiente
+                for prod_index, (lhs, rhs) in enumerate(self.grammar.productions):
+                    if lhs == item.lhs and rhs == item.rhs:
+                        self.action_table[state_id][item.lookahead] = ('reduce', prod_index)
+                        break
+    
     
 
     def to_dot(self):
@@ -332,38 +350,32 @@ class LR1Parser:
         
         return False, steps
 
-import re
+
 
 def parse_grammar(grammar_text):
     grammar = Grammar()
     for raw in grammar_text.strip().split('\n'):
         line = raw.strip()
         if not line:
-            continue
+                continue
 
-        # Soporta "->" y "→"
+            # Soporta "->" y "→"
         parts = re.split(r'\s*(?:->|→)\s*', line)
         if len(parts) != 2:
             continue
 
         lhs, rhs = parts[0].strip(), parts[1].strip()
-        # Normaliza NBSP a espacio normal (no altera tokens, solo el separador)
-        rhs = rhs.replace('\xa0', ' ')
+        rhs = rhs.replace('\xa0', ' ')  # normaliza espacios no estándar
 
-        # RESPETA LOS ESPACIOS: "(A)" queda como UN símbolo; "( A )" son tres
+            # RESPETA LOS ESPACIOS: "(A)" ≠ "( A )"
         if rhs in ('ε', ''):
             rhs_symbols = ['ε']
         else:
-            rhs_symbols = rhs.split()   # split por espacios, nada más
-
-        # Ignora una posible producción aumentada escrita por el usuario (opcional)
-        # if grammar.start_symbol and lhs == grammar.start_symbol + "'":
-        #     continue
+            rhs_symbols = rhs.split()  # split exacto por espacio
 
         grammar.add_production(lhs, rhs_symbols)
-        grammar.finalize_symbols()
 
-
+    grammar.finalize_symbols()  # <-- fuera del bucle
     return grammar
 
 
