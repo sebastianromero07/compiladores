@@ -85,7 +85,7 @@ A -> a"></textarea>
             </h2>
             <div id="firstSets" class="sets-container"></div>
 
-            <h3>Tabla FIRST </h3>
+            <h3>Tabla FIRST (por no terminal)</h3>
             <div id="firstTable" class="sets-container"></div>
           </div>
           
@@ -101,9 +101,23 @@ A -> a"></textarea>
             <div id="states" class="states-container"></div>
           </div>
         </div>
+
+        <div class="result-panel" style="margin-top:24px">
+          <h2>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 3h18v18H3z"></path>
+            </svg>
+            Autómata LR(1)
+          </h2>
+          <div id="lr1Graph" class="graph-container"></div>
+        </div>
       </section>
     </main>
   </div>
+
+  <!-- viz.js para renderizar el DOT que envía el backend -->
+  <script src="https://unpkg.com/viz.js@2.1.2/viz.js"></script>
+  <script src="https://unpkg.com/viz.js@2.1.2/full.render.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

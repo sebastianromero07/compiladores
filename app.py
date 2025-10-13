@@ -233,6 +233,38 @@ class LR1Parser:
                         if prod_num is not None:
                             self.action_table[state_id][item.lookahead] = ('reduce', prod_num)
     
+
+    def to_dot(self):
+        def esc(s: str) -> str:
+            return s.replace('"', r'\"')
+
+        lines = []
+        lines.append('digraph LR1 {')
+        lines.append('  rankdir=LR;')
+        lines.append('  node [shape=box, style="rounded,filled", fillcolor="#ffffff", fontname="Inter"];')
+        lines.append('  edge [fontname="Inter"];')
+
+        # Nodos: cada estado con sus ítems
+        for i, state in enumerate(self.states):
+            items_txt = "\\n".join(esc(str(item)) for item in state)
+            label = f'I{i}\\n{items_txt}'
+            lines.append(f'  I{i} [label="{label}"];')
+
+        # Aristas: desde goto_table
+        for (sid, symbol), tid in self.goto_table.items():
+            lines.append(f'  I{sid} -> I{tid} [label="{esc(symbol)}"];')
+
+        # Nodo accept opcional si quieres mostrarlo explícito:
+        # Buscar estado con acción accept
+        for sid, row in self.action_table.items():
+            if row.get("$", (None,))[0] == "accept":
+                lines.append('  Accept [shape=box, style="rounded,filled", fillcolor="#f5f5f5"];')
+                lines.append(f'  I{sid} -> Accept [label="$"];')
+                break
+
+        lines.append('}')
+        return "\n".join(lines)
+    
     def parse(self, input_string):
         """Analiza una cadena usando el parser LR(1)"""
         tokens = input_string.split() + ['$']
@@ -379,12 +411,14 @@ def handle_parse_request():
         return jsonify({
             "accepted": accepted,
             "first_sets": {k: list(v) for k, v in parser.first_sets.items()},
-            "first_table": parser.first_table,     # 👈 NUEVO
+            "first_table": parser.first_table,
             "canonical_collection": states_data,
             "parsing_table_action": parser.action_table,
             "parsing_table_goto": goto_table_json,
-            "parsing_steps": parse_steps
+            "parsing_steps": parse_steps,
+            "lr1_dot": parser.to_dot()   # <-- aquí
         })
+
 
 
     except Exception as e:

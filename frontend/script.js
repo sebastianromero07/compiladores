@@ -78,8 +78,31 @@ function displayResults(data) {
   displayFirstSets(data.first_sets);
   //mostrar tabla first
   displayFirstTable(data.first_table);
+  renderLR1Graph(data.lr1_dot);
+
   // Mostrar resultados
   document.getElementById('result').style.display = 'block';
+}
+function renderLR1Graph(dot) {
+  const container = document.getElementById('lr1Graph');
+  container.innerHTML = '';
+  if (!dot) {
+    container.innerHTML = '<p class="no-data">No hay grafo LR(1) para mostrar.</p>';
+    return;
+  }
+  try {
+    const viz = new Viz();
+    viz.renderSVGElement(dot)
+      .then(svg => {
+        svg.style.maxWidth = '100%';
+        container.appendChild(svg);
+      })
+      .catch(err => {
+        container.innerHTML = `<pre class="error">${String(err)}</pre>`;
+      });
+  } catch (e) {
+    container.innerHTML = `<pre class="error">${String(e)}</pre>`;
+  }
 }
 
 function displayParsingSteps(steps) {
