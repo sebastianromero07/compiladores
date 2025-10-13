@@ -69,16 +69,40 @@ function displayResults(data) {
   displayParsingSteps(data.parsing_steps);
 
   // Mostrar tabla ACTION
-  displayActionTable(data.parsing_table_action);
+  displayActionTable(data.parsing_table_action, data.parsing_table_goto);
 
   // Mostrar estados (colección canónica)
   displayStates(data.canonical_collection);
 
   // Mostrar conjuntos FIRST
   displayFirstSets(data.first_sets);
+  //mostrar tabla first
+  displayFirstTable(data.first_table);
+  renderLR1Graph(data.lr1_dot);
 
   // Mostrar resultados
   document.getElementById('result').style.display = 'block';
+}
+function renderLR1Graph(dot) {
+  const container = document.getElementById('lr1Graph');
+  container.innerHTML = '';
+  if (!dot) {
+    container.innerHTML = '<p class="no-data">No hay grafo LR(1) para mostrar.</p>';
+    return;
+  }
+  try {
+    const viz = new Viz();
+    viz.renderSVGElement(dot)
+      .then(svg => {
+        svg.style.maxWidth = '100%';
+        container.appendChild(svg);
+      })
+      .catch(err => {
+        container.innerHTML = `<pre class="error">${String(err)}</pre>`;
+      });
+  } catch (e) {
+    container.innerHTML = `<pre class="error">${String(e)}</pre>`;
+  }
 }
 
 function displayParsingSteps(steps) {
@@ -118,66 +142,108 @@ function displayParsingSteps(steps) {
   stepsList.appendChild(table);
 }
 
-function displayActionTable(actionTable) {
+function displayActionTable(actionTable, gotoTable = {}) {
   const actionHeader = document.getElementById('actionHeader');
   const actionBody = document.getElementById('actionBody');
   
   actionHeader.innerHTML = '';
   actionBody.innerHTML = '';
-  
+
   if (!actionTable || Object.keys(actionTable).length === 0) {
-    actionBody.innerHTML = '<tr><td colspan="100%">No hay tabla ACTION para mostrar.</td></tr>';
+    actionBody.innerHTML = '<tr><td colspan="100%">No hay tabla ACTION/GOTO para mostrar.</td></tr>';
     return;
   }
-  
-  // Obtener todos los símbolos únicos
-  const symbols = new Set();
+
+  // --- Separar terminales y no terminales ---
+  const terminals = new Set();
+  const nonTerminals = new Set();
+
+  // Terminales desde ACTION
   Object.values(actionTable).forEach(row => {
-    Object.keys(row).forEach(symbol => symbols.add(symbol));
+    Object.keys(row).forEach(symbol => terminals.add(symbol));
   });
-  
-  // Header
+
+  // No terminales desde GOTO
+  Object.keys(gotoTable).forEach(key => {
+    const [, symbol] = key.split(',');
+    nonTerminals.add(symbol);
+  });
+
+  // --- Construir encabezado ---
   const headerRow = document.createElement('tr');
   headerRow.appendChild(document.createElement('th')).textContent = 'Estado';
-  Array.from(symbols).sort().forEach(symbol => {
+
+  // Sección ACTION
+  const actionHeaderCell = document.createElement('th');
+  actionHeaderCell.colSpan = terminals.size || 1;
+  actionHeaderCell.textContent = 'ACTION';
+  actionHeaderCell.style.background = '#f1f5f9';
+  actionHeaderCell.style.textAlign = 'center';
+  actionHeaderCell.style.borderRight = '2px solid #000';
+  headerRow.appendChild(actionHeaderCell);
+
+  // Sección GOTO
+  const gotoHeaderCell = document.createElement('th');
+  gotoHeaderCell.colSpan = nonTerminals.size || 1;
+  gotoHeaderCell.textContent = 'GOTO';
+  gotoHeaderCell.style.background = '#f1f5f9';
+  gotoHeaderCell.style.textAlign = 'center';
+  headerRow.appendChild(gotoHeaderCell);
+
+  actionHeader.appendChild(headerRow);
+
+  // --- Segunda fila: nombres de símbolos ---
+  const subHeaderRow = document.createElement('tr');
+  subHeaderRow.appendChild(document.createElement('th')); // celda vacía
+  Array.from(terminals).sort().forEach(symbol => {
     const th = document.createElement('th');
     th.textContent = symbol;
-    headerRow.appendChild(th);
+    subHeaderRow.appendChild(th);
   });
-  actionHeader.appendChild(headerRow);
-  
-  // Body
-  Object.keys(actionTable).sort((a, b) => parseInt(a) - parseInt(b)).forEach(state => {
-    const row = document.createElement('tr');
-    const stateCell = document.createElement('td');
-    stateCell.textContent = state;
-    stateCell.className = 'state-cell';
-    row.appendChild(stateCell);
-    
-    Array.from(symbols).sort().forEach(symbol => {
-      const cell = document.createElement('td');
-      const action = actionTable[state][symbol];
-      if (action) {
-        if (Array.isArray(action)) {
-          cell.textContent = `${action[0]} ${action[1] || ''}`;
-        } else {
-          cell.textContent = action;
+  Array.from(nonTerminals).sort().forEach(symbol => {
+    const th = document.createElement('th');
+    th.textContent = symbol;
+    subHeaderRow.appendChild(th);
+  });
+  actionHeader.appendChild(subHeaderRow);
+
+  // --- Cuerpo de la tabla ---
+  Object.keys(actionTable)
+    .sort((a, b) => parseInt(a) - parseInt(b))
+    .forEach(state => {
+      const row = document.createElement('tr');
+      const stateCell = document.createElement('td');
+      stateCell.textContent = state;
+      stateCell.className = 'state-cell';
+      row.appendChild(stateCell);
+
+      // ACTION cells
+      Array.from(terminals).sort().forEach(symbol => {
+        const cell = document.createElement('td');
+        const action = actionTable[state][symbol];
+        if (action) {
+          const text = `${action[0][0]}${action[1] ?? ''}`; // s2, r1, etc.
+          cell.textContent = text;
+          if (action[0] === 'shift') cell.className = 'shift-action';
+          else if (action[0] === 'reduce') cell.className = 'reduce-action';
+          else if (action[0] === 'accept') cell.className = 'accept-action';
         }
-        
-        // Colorear según el tipo de acción
-        if (cell.textContent.includes('shift')) {
-          cell.className = 'shift-action';
-        } else if (cell.textContent.includes('reduce')) {
-          cell.className = 'reduce-action';
-        } else if (cell.textContent.includes('accept')) {
-          cell.className = 'accept-action';
+        row.appendChild(cell);
+      });
+
+      // GOTO cells
+      Array.from(nonTerminals).sort().forEach(symbol => {
+        const cell = document.createElement('td');
+        const key = `${state},${symbol}`;
+        if (gotoTable[key] !== undefined) {
+          cell.textContent = gotoTable[key];
+          cell.className = 'goto-cell';
         }
-      }
-      row.appendChild(cell);
+        row.appendChild(cell);
+      });
+
+      actionBody.appendChild(row);
     });
-    
-    actionBody.appendChild(row);
-  });
 }
 
 // ...existing code...
@@ -246,7 +312,38 @@ function displayFirstSets(firstSets) {
   firstSetsContainer.appendChild(table);
 }
 
-// ...existing code...
+function displayFirstTable(firstTable) {
+  const container = document.getElementById('firstTable');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (!firstTable || firstTable.length === 0) {
+    container.innerHTML = '<p class="no-data">No hay tabla FIRST para mostrar.</p>';
+    return;
+  }
+
+  const table = document.createElement('table');
+  table.className = 'first-sets-table';
+
+  const headerRow = document.createElement('tr');
+  headerRow.innerHTML = `
+    <th>Nonterminal</th>
+    <th>FIRST</th>
+  `;
+  table.appendChild(headerRow);
+
+  firstTable.forEach(row => {
+    const tr = document.createElement('tr');
+    const firstList = Array.isArray(row.first) ? row.first.join(', ') : '';
+    tr.innerHTML = `
+      <td><code>${row.nonterminal}</code></td>
+      <td><code>{ ${firstList} }</code></td>
+    `;
+    table.appendChild(tr);
+  });
+
+  container.appendChild(table);
+}
 
 // Mejorar la experiencia del usuario con atajos de teclado
 document.addEventListener('keydown', (e) => {
