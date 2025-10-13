@@ -15,22 +15,26 @@ CORS(app)
 
 class Grammar:
     def __init__(self):
-        self.productions = []
+        self.productions = []           # lista de (lhs, rhs_list)
         self.start_symbol = None
         self.terminals = set()
         self.non_terminals = set()
-        
+        self._rhs_symbols = set()       # todos los símbolos que aparecen en RHS
+
     def add_production(self, lhs, rhs):
         if self.start_symbol is None:
             self.start_symbol = lhs
         self.non_terminals.add(lhs)
         self.productions.append((lhs, rhs))
-        
-        for symbol in rhs:
-            if symbol.islower() or symbol in ['(', ')', '+', '*', '/', '-', '=', ';', ',', 'ε']:
-                self.terminals.add(symbol)
-            else:
-                self.non_terminals.add(symbol)
+        # solo registramos lo que aparece en RHS; NO clasificamos aún
+        for s in rhs:
+            self._rhs_symbols.add(s)
+
+    def finalize_symbols(self):
+        # terminales = símbolos en RHS que no son no-terminales y no son ε
+        self.terminals = set(sym for sym in self._rhs_symbols
+                             if sym not in self.non_terminals and sym != 'ε')
+
 
 class Item:
     def __init__(self, lhs, rhs, dot_pos, lookahead):
@@ -185,13 +189,14 @@ class LR1Parser:
             # Para cada símbolo, calcular GOTO
             for symbol in symbols:
                 goto_state = self.goto(current_state, symbol)
-                if goto_state:
-                    # Buscar si este estado ya existe
+                if goto_state and len(goto_state) > 0:  
+    # Buscar si este estado ya existe
                     existing_state_id = None
                     for i, state in enumerate(self.states):
                         if state == goto_state:
                             existing_state_id = i
                             break
+
                     
                     if existing_state_id is None:
                         # Nuevo estado
@@ -327,27 +332,41 @@ class LR1Parser:
         
         return False, steps
 
+import re
+
 def parse_grammar(grammar_text):
-    """Convierte la gramática de texto al objeto Grammar"""
     grammar = Grammar()
-    
-    for line in grammar_text.strip().split('\n'):
-        line = line.strip()
-        if not line or '->' not in line:
+    for raw in grammar_text.strip().split('\n'):
+        line = raw.strip()
+        if not line:
             continue
-        
-        lhs, rhs = line.split('->', 1)
-        lhs = lhs.strip()
-        rhs = rhs.strip()
-        
-        if rhs == 'ε' or rhs == '':
+
+        # Soporta "->" y "→"
+        parts = re.split(r'\s*(?:->|→)\s*', line)
+        if len(parts) != 2:
+            continue
+
+        lhs, rhs = parts[0].strip(), parts[1].strip()
+        # Normaliza NBSP a espacio normal (no altera tokens, solo el separador)
+        rhs = rhs.replace('\xa0', ' ')
+
+        # RESPETA LOS ESPACIOS: "(A)" queda como UN símbolo; "( A )" son tres
+        if rhs in ('ε', ''):
             rhs_symbols = ['ε']
         else:
-            rhs_symbols = rhs.split()
-        
+            rhs_symbols = rhs.split()   # split por espacios, nada más
+
+        # Ignora una posible producción aumentada escrita por el usuario (opcional)
+        # if grammar.start_symbol and lhs == grammar.start_symbol + "'":
+        #     continue
+
         grammar.add_production(lhs, rhs_symbols)
-    
+        grammar.finalize_symbols()
+
+
     return grammar
+
+
 
 # --- Endpoints de la API ---
 

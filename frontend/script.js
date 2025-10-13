@@ -142,9 +142,10 @@ function displayParsingSteps(steps) {
   stepsList.appendChild(table);
 }
 
+
 function displayActionTable(actionTable) {
-  const actionHeader = document.getElementById('actionHeader');
-  const actionBody = document.getElementById('actionBody');
+  const actionHeader = document.getElementById('actionHeader'); // <tr>
+  const actionBody = document.getElementById('actionBody');     // <tbody>
   
   actionHeader.innerHTML = '';
   actionBody.innerHTML = '';
@@ -153,42 +154,49 @@ function displayActionTable(actionTable) {
     actionBody.innerHTML = '<tr><td colspan="100%">No hay tabla ACTION para mostrar.</td></tr>';
     return;
   }
-  
-  // Obtener todos los símbolos únicos
-  const symbols = new Set();
+
+  // 1) Obtener símbolos y ordenarlos: "$" primero, luego alfabético
+  const symbolsSet = new Set();
   Object.values(actionTable).forEach(row => {
-    Object.keys(row).forEach(symbol => symbols.add(symbol));
+    Object.keys(row).forEach(sym => symbolsSet.add(sym));
   });
-  
-  // Header
-  const headerRow = document.createElement('tr');
-  headerRow.appendChild(document.createElement('th')).textContent = 'Estado';
-  Array.from(symbols).sort().forEach(symbol => {
+  const symbols = Array.from(symbolsSet).sort((a, b) => {
+    if (a === '$') return -1;
+    if (b === '$') return 1;
+    return a.localeCompare(b);
+  });
+
+  // 2) HEADER: usar directamente el <tr id="actionHeader">
+  const thState = document.createElement('th');
+  thState.textContent = 'Estado';
+  actionHeader.appendChild(thState);
+
+  symbols.forEach(symbol => {
     const th = document.createElement('th');
     th.textContent = symbol;
-    headerRow.appendChild(th);
+    actionHeader.appendChild(th);
   });
-  actionHeader.appendChild(headerRow);
-  
-  // Body
+
+  // 3) BODY: filas en el mismo orden de símbolos
   Object.keys(actionTable).sort((a, b) => parseInt(a) - parseInt(b)).forEach(state => {
     const row = document.createElement('tr');
+
     const stateCell = document.createElement('td');
     stateCell.textContent = state;
     stateCell.className = 'state-cell';
     row.appendChild(stateCell);
-    
-    Array.from(symbols).sort().forEach(symbol => {
+
+    symbols.forEach(symbol => {
       const cell = document.createElement('td');
       const action = actionTable[state][symbol];
+
       if (action) {
         if (Array.isArray(action)) {
-          cell.textContent = `${action[0]} ${action[1] || ''}`;
+          cell.textContent = `${action[0]} ${action[1] ?? ''}`.trim();
         } else {
           cell.textContent = action;
         }
-        
-        // Colorear según el tipo de acción
+
         if (cell.textContent.includes('shift')) {
           cell.className = 'shift-action';
         } else if (cell.textContent.includes('reduce')) {
@@ -197,9 +205,10 @@ function displayActionTable(actionTable) {
           cell.className = 'accept-action';
         }
       }
+
       row.appendChild(cell);
     });
-    
+
     actionBody.appendChild(row);
   });
 }

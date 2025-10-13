@@ -267,42 +267,78 @@ body {
   overflow-y: auto;
 }
 
+/* Tabla base */
 .parsing-table {
   width: 100%;
   border-collapse: collapse;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.8rem;
+  table-layout: fixed;           /* Alinea columnas de thead/tbody */
+  border: 1px solid var(--border);
 }
 
+/* Encabezados */
 .parsing-table th {
   background: #f8fafc;
   padding: 0.75rem 0.5rem;
   text-align: center;
   border-bottom: 2px solid var(--border);
+  border-right: 1px solid var(--border);
   font-weight: 600;
   color: var(--text-primary);
   position: sticky;
-  top: 0;
-  z-index: 10;
+  top: 0;                        /* header pegajoso */
+  z-index: 2;                    /* sobre celdas */
+  white-space: nowrap;
 }
 
+/* Celdas */
 .parsing-table td {
   padding: 0.5rem;
   text-align: center;
   border-bottom: 1px solid var(--border);
   border-right: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: nowrap;           /* evita saltos raros */
+  overflow: hidden;
+  text-overflow: ellipsis;       /* si el contenido es largo */
 }
 
-.parsing-table td:first-child {
+/* Primera columna (estado) pegajosa */
+.parsing-table td:first-child,
+.parsing-table th:first-child {
   background: #f8fafc;
   font-weight: 600;
   position: sticky;
   left: 0;
-  z-index: 5;
+  z-index: 3;                    /* por encima del resto */
 }
 
+/* Zebra + hover */
+.parsing-table tbody tr:nth-child(even) {
+  background: #fcfcfd;
+}
 .parsing-table tr:hover {
   background: rgba(37, 99, 235, 0.05);
+}
+
+/* Colores de acciones */
+.parsing-table .shift-action {
+  color: #2563eb;                /* azul */
+  font-weight: 600;
+}
+.parsing-table .reduce-action {
+  color: #7c3aed;                /* púrpura */
+  font-weight: 600;
+}
+.parsing-table .accept-action {
+  color: #16a34a;                /* verde */
+  font-weight: 700;
+}
+
+/* Ajustes responsivos (evitar desbordes) */
+.table-container {
+  overflow: auto;                /* scroll si se desborda */
+  border-radius: 10px;
+  border: 1px solid var(--border);
 }
 
 .shift-action {
@@ -314,7 +350,10 @@ body {
   color: #7c3aed;
   font-weight: 600;
 }
-
+.parsing-table th:first-child,
+.parsing-table td:first-child {
+  width: 80px;
+}
 .accept-action {
   color: var(--success-color);
   font-weight: 600;
