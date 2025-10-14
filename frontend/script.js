@@ -55,34 +55,70 @@ function showError(message) {
 }
 
 function displayResults(data) {
-  // Mostrar resultado de aceptación
-  const acceptanceEl = document.getElementById('acceptance');
-  if (data.accepted) {
-    acceptanceEl.className = 'status success';
-    acceptanceEl.innerHTML = '✅ Cadena aceptada por la gramática';
-  } else {
-    acceptanceEl.className = 'status error';
-    acceptanceEl.innerHTML = '❌ Cadena rechazada por la gramática';
-  }
+  // 1. Mostrar gramática aumentada
+  displayAugmentedGrammar(data.augmented_grammar);
 
-  // Mostrar pasos del parsing
-  displayParsingSteps(data.parsing_steps);
-
-  // Mostrar tabla ACTION
-  displayActionTable(data.parsing_table_action);
-
-  // Mostrar estados (colección canónica)
- 
-
-  // Mostrar conjuntos FIRST
+  // 2. Mostrar conjuntos FIRST
   displayFirstSets(data.first_sets);
-  //mostrar tabla first
-  displayFirstTable(data.first_table);
+
+  // 3. Mostrar autómata AFD LR(1)
   renderLR1Graph(data.lr1_dot);
+
+  // 4. Mostrar tabla ACTION
+  displayActionTable(data.parsing_table_action);
 
   // Mostrar resultados
   document.getElementById('result').style.display = 'block';
 }
+function displayAugmentedGrammar(augmentedGrammar) {
+  const container = document.getElementById('augmentedGrammar');
+  container.innerHTML = '';
+  
+  if (!augmentedGrammar || augmentedGrammar.length === 0) {
+    container.innerHTML = '<p class="no-data">No hay gramática aumentada para mostrar.</p>';
+    return;
+  }
+
+  // Crear contenedor de columnas
+  const columnsContainer = document.createElement('div');
+  columnsContainer.className = 'augmented-grammar-container';
+
+  // Agrupar por símbolo no terminal
+  const grouped = {};
+  augmentedGrammar.forEach(production => {
+    if (!grouped[production.lhs]) {
+      grouped[production.lhs] = [];
+    }
+    grouped[production.lhs].push(production);
+  });
+
+  // Crear la visualización en columnas
+  Object.entries(grouped).forEach(([lhs, productions]) => {
+    const nonTerminalDiv = document.createElement('div');
+    nonTerminalDiv.className = 'grammar-group';
+    
+    const header = document.createElement('h4');
+    header.className = 'grammar-header';
+    header.textContent = `${lhs}`;
+    nonTerminalDiv.appendChild(header);
+    
+    const productionsList = document.createElement('div');
+    productionsList.className = 'productions-list';
+    
+    productions.forEach(production => {
+      const prodDiv = document.createElement('div');
+      prodDiv.className = 'production-item';
+      prodDiv.innerHTML = `<code>${production.rhs}</code>`;
+      productionsList.appendChild(prodDiv);
+    });
+    
+    nonTerminalDiv.appendChild(productionsList);
+    columnsContainer.appendChild(nonTerminalDiv);
+  });
+  
+  container.appendChild(columnsContainer);
+}
+
 function renderLR1Graph(dot) {
   const container = document.getElementById('lr1Graph');
   container.innerHTML = '';
@@ -114,32 +150,80 @@ function displayParsingSteps(steps) {
     return;
   }
 
-  const table = document.createElement('table');
-  table.className = 'steps-table';
+  // Crear tabla con diseño moderno que replica exactamente la imagen
+  const tableContainer = document.createElement('div');
+  tableContainer.className = 'trace-table-container';
   
-  // Header
+  const table = document.createElement('table');
+  table.className = 'trace-table';
+  
+  // Header con el título "Trace" centrado
+  const titleRow = document.createElement('tr');
+  titleRow.innerHTML = `<th colspan="4" class="trace-title">Trace</th>`;
+  table.appendChild(titleRow);
+  
+  // Sub-header con las columnas
   const headerRow = document.createElement('tr');
   headerRow.innerHTML = `
-    <th>Paso</th>
-    <th>Pila</th>
-    <th>Entrada</th>
-    <th>Acción</th>
+    <th class="step-col">Step</th>
+    <th class="stack-col">Stack</th>
+    <th class="input-col">Input</th>
+    <th class="action-col">Action</th>
   `;
   table.appendChild(headerRow);
   
-  // Pasos
+  // Filas de datos
   steps.forEach((step, index) => {
     const row = document.createElement('tr');
+    const stepNumber = step.step || (index + 1);
+    
+    // Formatear la pila - mostrar estados con espacios
+    let stackDisplay = step.stack;
+    if (typeof stackDisplay === 'string') {
+      // Reemplazar comas por espacios para mejor legibilidad
+      stackDisplay = stackDisplay.replace(/,/g, ' ');
+    }
+    
+    // Formatear la entrada
+    let inputDisplay = step.input;
+    if (inputDisplay && inputDisplay !== '$') {
+      inputDisplay = inputDisplay.replace(/\s+/g, ' ').trim();
+    }
+    
+    // Formatear la acción exactamente como en la imagen
+    let actionDisplay = step.action;
+    if (actionDisplay.includes('Shift')) {
+      actionDisplay = actionDisplay.replace('Shift ', 's');
+    } else if (actionDisplay.startsWith('S')) {
+      actionDisplay = actionDisplay.toLowerCase(); // s3, s4, etc.
+    } else if (actionDisplay.startsWith('R')) {
+      actionDisplay = actionDisplay.toLowerCase(); // r1, r2, r3, etc.
+    } else if (actionDisplay === 'ACC' || actionDisplay.includes('Accept')) {
+      actionDisplay = 'acc';
+    } else if (actionDisplay.includes('ERROR')) {
+      actionDisplay = 'error';
+    }
+    
     row.innerHTML = `
-      <td>${index + 1}</td>
-      <td><code>${step.stack}</code></td>
-      <td><code>${step.input}</code></td>
-      <td>${step.action}</td>
+      <td class="step-cell">${stepNumber}</td>
+      <td class="stack-cell">${stackDisplay}</td>
+      <td class="input-cell">${inputDisplay}</td>
+      <td class="action-cell ${getActionClass(actionDisplay)}">${actionDisplay}</td>
     `;
     table.appendChild(row);
   });
   
-  stepsList.appendChild(table);
+  tableContainer.appendChild(table);
+  stepsList.appendChild(tableContainer);
+}
+
+// Función auxiliar para obtener la clase CSS según el tipo de acción
+function getActionClass(action) {
+  if (action.startsWith('s')) return 'shift-action';
+  if (action.startsWith('r')) return 'reduce-action';
+  if (action === 'acc') return 'accept-action';
+  if (action === 'error') return 'error-action';
+  return '';
 }
 
 
@@ -188,21 +272,34 @@ function displayActionTable(actionTable) {
 
     symbols.forEach(symbol => {
       const cell = document.createElement('td');
-      const action = actionTable[state][symbol];
-
-      if (action) {
+      const action = actionTable[state][symbol];      if (action) {
         if (Array.isArray(action)) {
-          cell.textContent = `${action[0]} ${action[1] ?? ''}`.trim();
+          // Manejar tuplas como ('shift', 2) o ('reduce', 'R1')
+          const actionType = action[0];
+          const actionValue = action[1];
+            if (actionType === 'shift') {
+            cell.textContent = `S${actionValue}`;
+            cell.className = 'shift-action';
+          } else if (actionType === 'reduce') {
+            cell.textContent = `R${actionValue}`;
+            cell.className = 'reduce-action';
+          } else if (actionType === 'accept') {
+            cell.textContent = 'ACC';
+            cell.className = 'accept-action';
+          } else {
+            cell.textContent = `${actionType} ${actionValue}`.trim();
+          }
         } else {
           cell.textContent = action;
-        }
-
-        if (cell.textContent.includes('shift')) {
-          cell.className = 'shift-action';
-        } else if (cell.textContent.includes('reduce')) {
-          cell.className = 'reduce-action';
-        } else if (cell.textContent.includes('accept')) {
-          cell.className = 'accept-action';
+          
+          // Clasificar por contenido del string
+          if (cell.textContent.includes('shift') || cell.textContent.startsWith('S')) {
+            cell.className = 'shift-action';
+          } else if (cell.textContent.includes('reduce') || cell.textContent.startsWith('R')) {
+            cell.className = 'reduce-action';
+          } else if (cell.textContent.includes('accept') || cell.textContent === 'ACC') {
+            cell.className = 'accept-action';
+          }
         }
       }
 
@@ -210,39 +307,6 @@ function displayActionTable(actionTable) {
     });
 
     actionBody.appendChild(row);
-  });
-}
-
-// ...existing code...
-
-function displayStates(states) {
-  const statesContainer = document.getElementById('states');
-  statesContainer.innerHTML = '';
-  
-  if (!states || states.length === 0) {
-    statesContainer.innerHTML = '<p class="no-data">No hay estados para mostrar.</p>';
-    return;
-  }
-
-  states.forEach(state => {
-    const stateDiv = document.createElement('div');
-    stateDiv.className = 'state-item';
-    
-    const stateHeader = document.createElement('h4');
-    stateHeader.textContent = `Estado ${state.id}`;
-    stateDiv.appendChild(stateHeader);
-    
-    const itemsList = document.createElement('ul');
-    itemsList.className = 'items-list';
-    
-    state.items.forEach(item => {
-      const listItem = document.createElement('li');
-      listItem.innerHTML = `<code>${item}</code>`;
-      itemsList.appendChild(listItem);
-    });
-    
-    stateDiv.appendChild(itemsList);
-    statesContainer.appendChild(stateDiv);
   });
 }
 
@@ -310,6 +374,139 @@ function displayFirstTable(firstTable) {
   });
 
   container.appendChild(table);
+}
+
+// Event listener para el botón de análisis de cadena
+document.getElementById('analyzeBtn').addEventListener('click', async () => {
+  const grammar = document.getElementById('grammar').value.trim();
+  const inputString = document.getElementById('inputString').value.trim();
+  const analyzeBtn = document.getElementById('analyzeBtn');
+  const btnText = analyzeBtn.querySelector('.btn-text');
+
+  if (!grammar) {
+    showError('Por favor, primero ingrese y analice una gramática.');
+    return;
+  }
+
+  if (!inputString) {
+    showError('Por favor, ingrese una cadena para analizar.');
+    return;
+  }
+
+  // Mostrar estado de carga
+  analyzeBtn.disabled = true;
+  btnText.innerHTML = '<div class="loading"><div class="spinner"></div>Analizando...</div>';
+
+  try {
+    const response = await fetch('/parse', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        grammar: grammar,
+        input_string: inputString
+      })
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      // Mostrar solo el resultado del análisis
+      const acceptanceEl = document.getElementById('acceptance');
+      const stepsTitle = document.getElementById('stepsTitle');
+      
+      if (data.accepted) {
+        acceptanceEl.className = 'status success';
+        acceptanceEl.innerHTML = '✅ Cadena aceptada por la gramática';
+      } else {
+        acceptanceEl.className = 'status error';
+        acceptanceEl.innerHTML = '❌ Cadena rechazada por la gramática';
+      }
+      
+      acceptanceEl.style.display = 'block';
+      stepsTitle.style.display = 'block';
+        // Mostrar pasos del parsing
+      displayParsingSteps(data.parsing_steps);
+      
+      // Mostrar árbol de derivación si existe
+      if (data.parse_tree && data.accepted) {
+        document.getElementById('treeTitle').style.display = 'block';
+        displayParseTree(data.parse_tree);
+      }
+    } else {
+      showError(data.error || 'Error desconocido en el servidor.');
+    }
+  } catch (error) {
+    showError(`Error de conexión: ${error.message}`);
+  } finally {
+    // Restaurar botón
+    analyzeBtn.disabled = false;
+    btnText.innerHTML = 'Analizar Cadena';
+  }
+});
+
+function displayParseTree(tree) {
+  const treeContainer = document.getElementById('parseTree');
+  treeContainer.innerHTML = '';
+  
+  if (!tree) {
+    treeContainer.innerHTML = '<p class="no-data">No hay árbol de derivación para mostrar.</p>';
+    return;
+  }
+
+  // Crear contenedor principal del árbol
+  const treeWrapper = document.createElement('div');
+  treeWrapper.className = 'tree-wrapper';
+  
+  // Función recursiva para crear la estructura del árbol
+  function buildNode(node) {
+    const nodeContainer = document.createElement('div');
+    nodeContainer.className = 'tree-node-container';
+    
+    // Crear el círculo del nodo
+    const nodeCircle = document.createElement('div');
+    nodeCircle.className = 'tree-node-circle';
+    nodeCircle.textContent = node.symbol;
+    nodeContainer.appendChild(nodeCircle);
+    
+    // Si tiene hijos, crear las ramas
+    if (node.children && node.children.length > 0) {
+      const childrenContainer = document.createElement('div');
+      childrenContainer.className = 'tree-children-container';
+      
+      node.children.forEach((child, index) => {
+        const childBranch = document.createElement('div');
+        childBranch.className = 'tree-branch';
+        
+        // Línea vertical hacia abajo
+        const verticalLine = document.createElement('div');
+        verticalLine.className = 'tree-line-vertical';
+        childBranch.appendChild(verticalLine);
+        
+        // Nodo hijo
+        const childNode = buildNode(child);
+        childBranch.appendChild(childNode);
+        
+        childrenContainer.appendChild(childBranch);
+      });
+      
+      // Línea horizontal que conecta los hijos
+      if (node.children.length > 1) {
+        const horizontalLine = document.createElement('div');
+        horizontalLine.className = 'tree-line-horizontal';
+        nodeContainer.appendChild(horizontalLine);
+      }
+      
+      nodeContainer.appendChild(childrenContainer);
+    }
+    
+    return nodeContainer;
+  }
+  
+  const treeRoot = buildNode(tree);
+  treeWrapper.appendChild(treeRoot);
+  treeContainer.appendChild(treeWrapper);
 }
 
 // Mejorar la experiencia del usuario con atajos de teclado
