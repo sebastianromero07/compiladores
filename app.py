@@ -1,7 +1,7 @@
 import os
+import re
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS 
-
 # Obtener la ruta absoluta del directorio actual
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
@@ -15,22 +15,26 @@ CORS(app)
 
 class Grammar:
     def __init__(self):
-        self.productions = []
+        self.productions = []           # lista de (lhs, rhs_list)
         self.start_symbol = None
         self.terminals = set()
         self.non_terminals = set()
-        
+        self._rhs_symbols = set()       # todos los símbolos que aparecen en RHS
+
     def add_production(self, lhs, rhs):
         if self.start_symbol is None:
             self.start_symbol = lhs
         self.non_terminals.add(lhs)
         self.productions.append((lhs, rhs))
-        
-        for symbol in rhs:
-            if symbol.islower() or symbol in ['(', ')', '+', '*', '/', '-', '=', ';', ',', 'ε']:
-                self.terminals.add(symbol)
-            else:
-                self.non_terminals.add(symbol)
+        # solo registramos lo que aparece en RHS; NO clasificamos aún
+        for s in rhs:
+            self._rhs_symbols.add(s)
+
+    def finalize_symbols(self):
+        # terminales = símbolos en RHS que no son no-terminales y no son ε
+        self.terminals = set(sym for sym in self._rhs_symbols
+                            if sym not in self.non_terminals and sym != 'ε')
+
 
 class Item:
     def __init__(self, lhs, rhs, dot_pos, lookahead):
@@ -59,6 +63,8 @@ class LR1Parser:
         self.states = []
         self.goto_table = {}
         self.action_table = {}
+        self.augmented_start = None
+        self.base_start = None
         self.build_parser()
     
     def compute_first_sets(self):
@@ -91,6 +97,17 @@ class LR1Parser:
                 if len(self.first_sets[lhs]) != old_size:
                     changed = True
     
+    def compute_first_table(self):
+        """Tabla FIRST por no terminal (no por producción)."""
+        self.first_table = []
+        # ordenar los no terminales para que el orden sea estable
+        for nt in sorted(self.grammar.non_terminals):
+            first_of_nt = sorted(self.first_sets.get(nt, []))
+            self.first_table.append({
+                "nonterminal": nt,
+                "first": first_of_nt
+            })
+
     def first_of_string(self, symbols):
         """Calcula FIRST de una secuencia de símbolos"""
         if not symbols:
@@ -136,7 +153,7 @@ class LR1Parser:
             closure_set.update(new_items)
         
         return closure_set
-    
+
     def goto(self, items, symbol):
         """Calcula GOTO(items, symbol)"""
         goto_items = set()
@@ -152,10 +169,31 @@ class LR1Parser:
     def build_parser(self):
         """Construye los estados y las tablas del parser LR(1)"""
         self.compute_first_sets()
+        self.compute_first_table()
         
-        # Estado inicial: S' -> •S, $
-        augmented_start = self.grammar.start_symbol + "'"
-        initial_item = Item(augmented_start, [self.grammar.start_symbol], 0, '$')
+        # Determinar el símbolo de inicio aumentado
+        augmented_symbols = [nt for nt in self.grammar.non_terminals if nt.endswith("'")]
+        
+        if augmented_symbols:
+            # Ya hay símbolo aumentado en la gramática
+            self.augmented_start = augmented_symbols[0]
+            # Encontrar el símbolo base
+            for lhs, rhs in self.grammar.productions:
+                if lhs == self.augmented_start and len(rhs) == 1:
+                    self.base_start = rhs[0]
+                    break
+            else:
+                self.base_start = self.augmented_start.rstrip("'")
+        else:
+            # Crear símbolo aumentado
+            self.base_start = self.grammar.start_symbol
+            self.augmented_start = self.base_start + "'"
+            # Agregar la producción aumentada
+            self.grammar.productions.insert(0, (self.augmented_start, [self.base_start]))
+            self.grammar.non_terminals.add(self.augmented_start)
+        
+        # Estado inicial
+        initial_item = Item(self.augmented_start, [self.base_start], 0, '$')
         initial_state = self.closure({initial_item})
         
         self.states = [initial_state]
@@ -195,6 +233,23 @@ class LR1Parser:
         # Construir las tablas ACTION y GOTO
         self.build_action_table()
     
+    def get_augmented_grammar(self):
+        """Genera la gramática aumentada mostrando todas las posiciones del punto"""
+        augmented_productions = []
+        
+        for lhs, rhs in self.grammar.productions:
+            # Para cada producción, generar todas las posiciones del punto
+            for dot_pos in range(len(rhs) + 1):
+                rhs_with_dot = rhs[:dot_pos] + ['•'] + rhs[dot_pos:]
+                production_str = f"{lhs} -> {' '.join(rhs_with_dot)}"
+                augmented_productions.append({
+                    "lhs": lhs,
+                    "rhs": ' '.join(rhs_with_dot),
+                    "production": production_str
+                })
+        
+        return augmented_productions
+
     def build_action_table(self):
         """Construye la tabla ACTION"""
         for state_id, state in enumerate(self.states):
@@ -210,7 +265,7 @@ class LR1Parser:
                             self.action_table[state_id][next_symbol] = ('shift', next_state)
                 else:
                     # REDUCE o ACCEPT
-                    if item.lhs == self.grammar.start_symbol + "'" and item.lookahead == '$':
+                    if item.lhs == self.augmented_start and item.lookahead == '$':
                         self.action_table[state_id]['$'] = ('accept', None)
                     else:
                         # Encontrar el número de la producción
@@ -222,48 +277,112 @@ class LR1Parser:
                         
                         if prod_num is not None:
                             self.action_table[state_id][item.lookahead] = ('reduce', prod_num)
+
+    def to_dot(self):
+        def esc(s: str) -> str:
+            return s.replace('"', r'\"')
+
+        lines = []
+        lines.append('digraph LR1 {')
+        lines.append('  rankdir=LR;')
+        lines.append('  node [shape=box, style="rounded,filled", fillcolor="#ffffff", fontname="Inter"];')
+        lines.append('  edge [fontname="Inter"];')
+
+        # Nodos: cada estado con sus ítems
+        for i, state in enumerate(self.states):
+            items_txt = "\\n".join(esc(str(item)) for item in state)
+            label = f'I{i}\\n{items_txt}'
+            lines.append(f'  I{i} [label="{label}"];')
+
+        # Aristas: desde goto_table
+        for (sid, symbol), tid in self.goto_table.items():
+            lines.append(f'  I{sid} -> I{tid} [label="{esc(symbol)}"];')
+
+        lines.append('}')
+        return "\n".join(lines)
     
     def parse(self, input_string):
         """Analiza una cadena usando el parser LR(1)"""
-        tokens = input_string.split() + ['$']
+        # Tokenizar la entrada - manejar paréntesis correctamente
+        tokens = []
+        i = 0
+        while i < len(input_string):
+            char = input_string[i]
+            if char.isspace():
+                i += 1
+                continue
+            elif char in '()':
+                tokens.append(char)
+                i += 1
+            else:
+                # Recoger caracteres alfanuméricos
+                token = ''
+                while i < len(input_string) and not input_string[i].isspace() and input_string[i] not in '()':
+                    token += input_string[i]
+                    i += 1
+                if token:
+                    tokens.append(token)
+        
+        tokens.append('$')
+        
         stack = [0]  # Pila de estados
+        symbol_stack = []  # Pila de símbolos para mostrar en la tabla
         steps = []
+        parse_tree_stack = []  # Para construir el árbol
         
         i = 0
-        while i < len(tokens):
+        step_count = 0
+        while i < len(tokens) and step_count < 100:  # Límite para evitar bucles infinitos
+            step_count += 1
             state = stack[-1]
             token = tokens[i]
             
-            steps.append({
-                "stack": str(stack),
-                "input": ' '.join(tokens[i:]),
-                "action": f"Estado {state}, símbolo {token}"
-            })
-            
             if state not in self.action_table or token not in self.action_table[state]:
                 steps.append({
-                    "stack": str(stack),
+                    "step": step_count,
+                    "stack": ' '.join(symbol_stack),
                     "input": ' '.join(tokens[i:]),
-                    "action": f"Error: No hay acción definida para estado {state} y símbolo {token}"
+                    "action": "ERROR"
                 })
-                return False, steps
+                return False, steps, None
             
             action, value = self.action_table[state][token]
             
             if action == 'shift':
                 stack.append(value)
-                i += 1
-                steps.append({
-                    "stack": str(stack),
-                    "input": ' '.join(tokens[i:]),
-                    "action": f"Shift {value}"
+                symbol_stack.append(token)
+                # Crear nodo hoja para el árbol
+                parse_tree_stack.append({
+                    "symbol": token,
+                    "children": []
                 })
+                steps.append({
+                    "step": step_count,
+                    "stack": ' '.join(symbol_stack),
+                    "input": ' '.join(tokens[i:]),
+                    "action": f"s{value}"
+                })
+                i += 1
             elif action == 'reduce':
                 lhs, rhs = self.grammar.productions[value]
-                # Pop 2 * |rhs| elementos (estado y símbolo)
+                
+                # Recoger hijos para el árbol
+                children = []
                 for _ in range(len(rhs)):
+                    if symbol_stack:
+                        symbol_stack.pop()
                     if stack:
                         stack.pop()
+                    if parse_tree_stack:
+                        children.insert(0, parse_tree_stack.pop())
+                
+                # Crear nodo padre
+                parent_node = {
+                    "symbol": lhs,
+                    "children": children
+                }
+                parse_tree_stack.append(parent_node)
+                symbol_stack.append(lhs)
                 
                 # GOTO
                 current_state = stack[-1] if stack else 0
@@ -271,40 +390,86 @@ class LR1Parser:
                     stack.append(self.goto_table[(current_state, lhs)])
                 
                 steps.append({
-                    "stack": str(stack),
+                    "step": step_count,
+                    "stack": ' '.join(symbol_stack),
                     "input": ' '.join(tokens[i:]),
-                    "action": f"Reduce por {lhs} -> {' '.join(rhs)}"
+                    "action": f"r{value + 1}"  # +1 para que comience en r1, r2, etc.
                 })
             elif action == 'accept':
                 steps.append({
-                    "stack": str(stack),
+                    "step": step_count,
+                    "stack": ' '.join(symbol_stack),
                     "input": '$',
-                    "action": "Accept - Cadena aceptada"
+                    "action": "acc"
                 })
-                return True, steps
+                
+                # El árbol final está en la cima de parse_tree_stack
+                tree = parse_tree_stack[-1] if parse_tree_stack else None
+                return True, steps, tree
         
-        return False, steps
+        return False, steps, None
 
 def parse_grammar(grammar_text):
-    """Convierte la gramática de texto al objeto Grammar"""
+    """
+    Parsea gramáticas que pueden contener el símbolo "|" para alternativas.
+    Ejemplo: E' → '+' T E' | ε se convierte en dos producciones separadas
+    """
     grammar = Grammar()
     
-    for line in grammar_text.strip().split('\n'):
-        line = line.strip()
-        if not line or '->' not in line:
+    for raw in grammar_text.strip().split('\n'):
+        line = raw.strip()
+        if not line:
             continue
+
+        # Soporta "->" y "→"
+        parts = re.split(r'\s*(?:->|→)\s*', line)
+        if len(parts) != 2:
+            continue
+
+        lhs, rhs_full = parts[0].strip(), parts[1].strip()
         
-        lhs, rhs = line.split('->', 1)
-        lhs = lhs.strip()
-        rhs = rhs.strip()
+        # Dividir por "|" para manejar alternativas
+        alternatives = [alt.strip() for alt in rhs_full.split('|')]
         
-        if rhs == 'ε' or rhs == '':
-            rhs_symbols = ['ε']
-        else:
-            rhs_symbols = rhs.split()
-        
-        grammar.add_production(lhs, rhs_symbols)
-    
+        for rhs in alternatives:
+            rhs = rhs.replace('\xa0', ' ')  # normaliza espacios no estándar
+            
+            # Manejar producciones vacías
+            if rhs in ('ε', '', 'epsilon'):
+                rhs_symbols = ['ε']
+            else:
+                # Tokenizar respetando comillas simples para terminales
+                rhs_symbols = []
+                i = 0
+                while i < len(rhs):
+                    if rhs[i].isspace():
+                        i += 1
+                        continue
+                    elif rhs[i] == "'":
+                        # Terminal entre comillas simples
+                        i += 1  # saltar primera comilla
+                        terminal = ''
+                        while i < len(rhs) and rhs[i] != "'":
+                            terminal += rhs[i]
+                            i += 1
+                        if i < len(rhs) and rhs[i] == "'":
+                            i += 1  # saltar segunda comilla
+                        rhs_symbols.append(terminal)
+                    elif rhs[i] in '()':
+                        rhs_symbols.append(rhs[i])
+                        i += 1
+                    else:
+                        # Recoger símbolo completo
+                        symbol = ''
+                        while i < len(rhs) and not rhs[i].isspace() and rhs[i] not in "()'":
+                            symbol += rhs[i]
+                            i += 1
+                        if symbol:
+                            rhs_symbols.append(symbol)
+
+            grammar.add_production(lhs, rhs_symbols)
+
+    grammar.finalize_symbols()
     return grammar
 
 # --- Endpoints de la API ---
@@ -341,11 +506,13 @@ def handle_parse_request():
         parser = LR1Parser(grammar)
         
         # Analizar la cadena
+        parse_tree = None
         if input_string:
-            accepted, parse_steps = parser.parse(input_string)
+            accepted, parse_steps, parse_tree = parser.parse(input_string)
         else:
             accepted = True
             parse_steps = [{
+                "step": 1,
                 "stack": "N/A",
                 "input": "Cadena vacía",
                 "action": "No hay cadena para analizar"
@@ -366,13 +533,21 @@ def handle_parse_request():
             key = f"{state_id},{symbol}"
             goto_table_json[key] = target_state
         
+        # Filtrar FIRST sets solo para no terminales
+        first_sets_nonterminals = {k: list(v) for k, v in parser.first_sets.items() 
+                                   if k in grammar.non_terminals}
+        
         return jsonify({
             "accepted": accepted,
-            "first_sets": {k: list(v) for k, v in parser.first_sets.items()},
+            "augmented_grammar": parser.get_augmented_grammar(),
+            "first_sets": first_sets_nonterminals,
+            "first_table": parser.first_table,
             "canonical_collection": states_data,
             "parsing_table_action": parser.action_table,
             "parsing_table_goto": goto_table_json,
-            "parsing_steps": parse_steps
+            "parsing_steps": parse_steps,
+            "parse_tree": parse_tree,
+            "lr1_dot": parser.to_dot()   # AFD
         })
 
     except Exception as e:
@@ -382,4 +557,6 @@ def handle_parse_request():
     
 # --- Iniciar el servidor ---
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    import os
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
