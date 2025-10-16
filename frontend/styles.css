@@ -510,7 +510,53 @@ body {
   background: #94a3b8;
 }
 
-/* ...existing code... */
+/* Controles de acordeón */
+.accordion-controls {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-bottom: 2rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+}
+
+.control-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+}
+
+.control-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.control-btn:active {
+  transform: translateY(0);
+}
+
+.control-btn svg {
+  transition: transform 0.3s ease;
+}
+
+.control-btn:hover svg {
+  transform: scale(1.1);
+}
 
 .sets-container {
   margin-top: 1rem;
@@ -1020,4 +1066,79 @@ body {
   .tree-wrapper {
     padding: 1rem;
   }
+}
+
+/* Acordeón styles */
+.accordion-header {
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  user-select: none;
+}
+
+.accordion-header:hover {
+  background: linear-gradient(135deg, #5b21b6 0%, #6366f1 100%);
+}
+
+.accordion-icon {
+  margin-left: auto;
+  transition: transform 0.3s ease;
+  flex-shrink: 0;
+}
+
+.accordion-header.collapsed .accordion-icon {
+  transform: rotate(-90deg);
+}
+
+.accordion-content {
+  max-height: 1000px;
+  overflow: hidden;
+  transition: max-height 0.4s ease, opacity 0.3s ease, padding 0.3s ease;
+  opacity: 1;
+}
+
+.accordion-content.collapsed {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.section-container.collapsed {
+  margin-bottom: 0.5rem;
+}
+
+.section-container.collapsed:hover {
+  transform: translateY(-1px);
+}
+
+/* Animaciones suaves para el acordeón */
+@keyframes slideDown {
+  from {
+    max-height: 0;
+    opacity: 0;
+  }
+  to {
+    max-height: 1000px;
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    max-height: 1000px;
+    opacity: 1;
+  }
+  to {
+    max-height: 0;
+    opacity: 0;
+  }
+}
+
+.accordion-content.expanding {
+  animation: slideDown 0.4s ease;
+}
+
+.accordion-content.collapsing {
+  animation: slideUp 0.4s ease;
 }

@@ -57,15 +57,19 @@ function showError(message) {
 function displayResults(data) {
   // 1. Mostrar gramática aumentada
   displayAugmentedGrammar(data.augmented_grammar);
+  expandSection('augmentedGrammar');
 
   // 2. Mostrar conjuntos FIRST
   displayFirstSets(data.first_sets);
+  expandSection('firstSets');
 
   // 3. Mostrar autómata AFD LR(1)
   renderLR1Graph(data.lr1_dot);
+  expandSection('lr1Graph');
 
   // 4. Mostrar tabla ACTION
   displayActionTable(data.parsing_table_action);
+  expandSection('actionTableContent');
 
   // Mostrar resultados
   document.getElementById('result').style.display = 'block';
@@ -522,4 +526,113 @@ document.querySelectorAll('textarea').forEach(textarea => {
     this.style.height = 'auto';
     this.style.height = this.scrollHeight + 'px';
   });
+});
+
+// Funcionalidad de acordeón
+document.addEventListener('DOMContentLoaded', () => {
+  // Inicializar acordeón
+  initializeAccordion();
+});
+
+function initializeAccordion() {
+  const accordionHeaders = document.querySelectorAll('.accordion-header');
+  
+  accordionHeaders.forEach(header => {
+    header.addEventListener('click', () => {
+      const sectionId = header.getAttribute('data-section');
+      const content = document.getElementById(sectionId);
+      const icon = header.querySelector('.accordion-icon');
+      const container = header.parentElement;
+      
+      if (content && icon && container) {
+        toggleAccordionSection(header, content, icon, container);
+      }
+    });
+  });
+}
+
+function toggleAccordionSection(header, content, icon, container) {
+  const isCollapsed = content.classList.contains('collapsed');
+  
+  if (isCollapsed) {
+    // Expandir
+    content.classList.remove('collapsed');
+    content.classList.add('expanding');
+    header.classList.remove('collapsed');
+    container.classList.remove('collapsed');
+    
+    // Remover clase de animación después de que termine
+    setTimeout(() => {
+      content.classList.remove('expanding');
+    }, 400);
+  } else {
+    // Colapsar
+    content.classList.add('collapsing');
+    
+    setTimeout(() => {
+      content.classList.add('collapsed');
+      content.classList.remove('collapsing');
+      header.classList.add('collapsed');
+      container.classList.add('collapsed');
+    }, 400);
+  }
+}
+
+// Función para expandir una sección específica (útil cuando se cargan resultados)
+function expandSection(sectionId) {
+  const header = document.querySelector(`[data-section="${sectionId}"]`);
+  const content = document.getElementById(sectionId);
+  const icon = header?.querySelector('.accordion-icon');
+  const container = header?.parentElement;
+  
+  if (header && content && content.classList.contains('collapsed')) {
+    toggleAccordionSection(header, content, icon, container);
+  }
+}
+
+// Función para colapsar todas las secciones
+function collapseAllSections() {
+  const accordionHeaders = document.querySelectorAll('.accordion-header');
+  
+  accordionHeaders.forEach(header => {
+    const sectionId = header.getAttribute('data-section');
+    const content = document.getElementById(sectionId);
+    const icon = header.querySelector('.accordion-icon');
+    const container = header.parentElement;
+    
+    if (content && !content.classList.contains('collapsed')) {
+      toggleAccordionSection(header, content, icon, container);
+    }
+  });
+}
+
+// Función para expandir todas las secciones
+function expandAllSections() {
+  const accordionHeaders = document.querySelectorAll('.accordion-header');
+  
+  accordionHeaders.forEach(header => {
+    const sectionId = header.getAttribute('data-section');
+    const content = document.getElementById(sectionId);
+    const icon = header.querySelector('.accordion-icon');
+    const container = header.parentElement;
+    
+    if (content && content.classList.contains('collapsed')) {
+      toggleAccordionSection(header, content, icon, container);
+    }
+  });
+}
+
+// Event listeners para botones de control
+document.addEventListener('DOMContentLoaded', () => {
+  // Botón expandir todo
+  const expandAllBtn = document.getElementById('expandAllBtn');
+  if (expandAllBtn) {
+    expandAllBtn.addEventListener('click', expandAllSections);
+  }
+  
+  // Botón colapsar todo
+  const collapseAllBtn = document.getElementById('collapseAllBtn');
+  if (collapseAllBtn) {
+    collapseAllBtn.addEventListener('click', collapseAllSections);
+  }
 });

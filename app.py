@@ -412,65 +412,98 @@ class LR1Parser:
 def parse_grammar(grammar_text):
     """
     Parsea gramáticas que pueden contener el símbolo "|" para alternativas.
-    Ejemplo: E' → '+' T E' | ε se convierte en dos producciones separadas
+    Maneja tanto:
+    - Alternativas en una línea: S -> A | B | C
+    - Alternativas en líneas separadas:
+      S -> A
+        | B
+        | C
     """
     grammar = Grammar()
+    lines = grammar_text.strip().split('\n')
     
-    for raw in grammar_text.strip().split('\n'):
-        line = raw.strip()
+    current_lhs = None
+    
+    for raw_line in lines:
+        line = raw_line.strip()
         if not line:
             continue
-
-        # Soporta "->" y "→"
-        parts = re.split(r'\s*(?:->|→)\s*', line)
-        if len(parts) != 2:
-            continue
-
-        lhs, rhs_full = parts[0].strip(), parts[1].strip()
         
-        # Dividir por "|" para manejar alternativas
-        alternatives = [alt.strip() for alt in rhs_full.split('|')]
-        
-        for rhs in alternatives:
-            rhs = rhs.replace('\xa0', ' ')  # normaliza espacios no estándar
+        # Verificar si la línea comienza con "|" (alternativa continua)
+        if line.startswith('|'):
+            if current_lhs is None:
+                continue  # Ignorar "|" sin LHS previo
+            
+            # Quitar el "|" y procesar como RHS
+            rhs_text = line[1:].strip()
             
             # Manejar producciones vacías
-            if rhs in ('ε', '', 'epsilon'):
+            if rhs_text in ('ε', '', 'epsilon'):
                 rhs_symbols = ['ε']
             else:
-                # Tokenizar respetando comillas simples para terminales
-                rhs_symbols = []
-                i = 0
-                while i < len(rhs):
-                    if rhs[i].isspace():
-                        i += 1
-                        continue
-                    elif rhs[i] == "'":
-                        # Terminal entre comillas simples
-                        i += 1  # saltar primera comilla
-                        terminal = ''
-                        while i < len(rhs) and rhs[i] != "'":
-                            terminal += rhs[i]
-                            i += 1
-                        if i < len(rhs) and rhs[i] == "'":
-                            i += 1  # saltar segunda comilla
-                        rhs_symbols.append(terminal)
-                    elif rhs[i] in '()':
-                        rhs_symbols.append(rhs[i])
-                        i += 1
-                    else:
-                        # Recoger símbolo completo
-                        symbol = ''
-                        while i < len(rhs) and not rhs[i].isspace() and rhs[i] not in "()'":
-                            symbol += rhs[i]
-                            i += 1
-                        if symbol:
-                            rhs_symbols.append(symbol)
+                rhs_symbols = tokenize_rhs(rhs_text)
+            
+            grammar.add_production(current_lhs, rhs_symbols)
+            continue
+        
+        # Verificar si tiene "->" o "→"
+        if '->' in line or '→' in line:
+            # Soporta "->" y "→"
+            parts = re.split(r'\s*(?:->|→)\s*', line)
+            if len(parts) != 2:
+                continue
 
-            grammar.add_production(lhs, rhs_symbols)
+            lhs, rhs_full = parts[0].strip(), parts[1].strip()
+            current_lhs = lhs  # Guardar para posibles alternativas siguientes
+            
+            # Dividir por "|" para manejar alternativas en la misma línea
+            alternatives = [alt.strip() for alt in rhs_full.split('|')]
+            
+            for rhs in alternatives:
+                rhs = rhs.replace('\xa0', ' ')  # normaliza espacios no estándar
+                
+                # Manejar producciones vacías
+                if rhs in ('ε', '', 'epsilon'):
+                    rhs_symbols = ['ε']
+                else:
+                    rhs_symbols = tokenize_rhs(rhs)
+                
+                grammar.add_production(lhs, rhs_symbols)
 
     grammar.finalize_symbols()
     return grammar
+
+def tokenize_rhs(rhs_text):
+    """Tokeniza el lado derecho de una producción"""
+    rhs_symbols = []
+    i = 0
+    while i < len(rhs_text):
+        if rhs_text[i].isspace():
+            i += 1
+            continue
+        elif rhs_text[i] == "'":
+            # Terminal entre comillas simples
+            i += 1  # saltar primera comilla
+            terminal = ''
+            while i < len(rhs_text) and rhs_text[i] != "'":
+                terminal += rhs_text[i]
+                i += 1
+            if i < len(rhs_text) and rhs_text[i] == "'":
+                i += 1  # saltar segunda comilla
+            rhs_symbols.append(terminal)
+        elif rhs_text[i] in '()':
+            rhs_symbols.append(rhs_text[i])
+            i += 1
+        else:
+            # Recoger símbolo completo
+            symbol = ''
+            while i < len(rhs_text) and not rhs_text[i].isspace() and rhs_text[i] not in "()'":
+                symbol += rhs_text[i]
+                i += 1
+            if symbol:
+                rhs_symbols.append(symbol)
+    
+    return rhs_symbols
 
 # --- Endpoints de la API ---
 
