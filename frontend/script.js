@@ -429,14 +429,13 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
       }
       
       acceptanceEl.style.display = 'block';
-      stepsTitle.style.display = 'block';
-        // Mostrar pasos del parsing
+      stepsTitle.style.display = 'block';      // Mostrar pasos del parsing
       displayParsingSteps(data.parsing_steps);
       
       // Mostrar árbol de derivación si existe
       if (data.parse_tree && data.accepted) {
-        document.getElementById('treeTitle').style.display = 'block';
         displayParseTree(data.parse_tree);
+        expandSection('parseTree');
       }
     } else {
       showError(data.error || 'Error desconocido en el servidor.');

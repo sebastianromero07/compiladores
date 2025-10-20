@@ -131,13 +131,25 @@ a
                 <span class="btn-text">Analizar Cadena</span>
               </button>
             </div>
-              <div id="acceptance" class="status" style="display: none;"></div>
+            <div id="acceptance" class="status" style="display: none;"></div>
             <h3 class="subsection-title" id="stepsTitle" style="display: none;">Pasos del Parsing</h3>
             <div id="parsingSteps" class="steps-container"></div>
-            
-            <h3 class="subsection-title" id="treeTitle" style="display: none;">Árbol de Derivación</h3>
-            <div id="parseTree" class="tree-container"></div>
           </div>
+        </div>
+
+        <!-- 6. Árbol de Derivación -->
+        <div class="section-container">
+          <h2 class="section-title accordion-header" data-section="parseTree">
+            <span class="step-number">6</span>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
+            </svg>
+            Árbol de Derivación
+            <svg class="accordion-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6,9 12,15 18,9"></polyline>
+            </svg>
+          </h2>
+          <div id="parseTree" class="content-panel accordion-content active tree-container"></div>
         </div>
       </section>
     </main>
