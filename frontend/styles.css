@@ -1142,3 +1142,17 @@ body {
 .accordion-content.collapsing {
   animation: slideUp 0.4s ease;
 }
+
+.goto-cell {
+  font-weight: 600;
+  color: #111827;
+}
+
+.parsing-table th {
+  background: #f8fafc;
+  border-bottom: 2px solid #000;
+}
+
+.parsing-table td {
+  border-right: 1px solid #ddd;
+}
