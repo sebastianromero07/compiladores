@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
   <div class="container">
@@ -107,8 +108,10 @@ A -> a"></textarea>
                 <tbody id="actionBody"></tbody>
               </table>
             </div>
-          </div>
-        </div>        <!-- 5. Entrada de Cadena y Análisis -->
+          </div> 
+        </div>
+
+                <!-- 5. Entrada de Cadena y Análisis -->
         <div class="section-container">
           <h2 class="section-title accordion-header" data-section="stringAnalysis">
             <span class="step-number">5</span>
@@ -158,6 +161,7 @@ a
   <!-- viz.js para renderizar el DOT que envía el backend -->
   <script src="https://unpkg.com/viz.js@2.1.2/viz.js"></script>
   <script src="https://unpkg.com/viz.js@2.1.2/full.render.js"></script>
+
   <script src="script.js"></script>
 </body>
 </html>

@@ -45,12 +45,12 @@ function showError(message) {
   const acceptanceEl = document.getElementById('acceptance');
   acceptanceEl.className = 'status error';
   acceptanceEl.innerHTML = `❌ Error: ${message}`;
-  
+
   // Limpiar otros resultados
   document.getElementById('parsingSteps').innerHTML = '';
   document.getElementById('actionHeader').innerHTML = '';
   document.getElementById('actionBody').innerHTML = '';
-  
+
   document.getElementById('result').style.display = 'block';
 }
 
@@ -77,7 +77,7 @@ function displayResults(data) {
 function displayAugmentedGrammar(augmentedGrammar) {
   const container = document.getElementById('augmentedGrammar');
   container.innerHTML = '';
-  
+
   if (!augmentedGrammar || augmentedGrammar.length === 0) {
     container.innerHTML = '<p class="no-data">No hay gramática aumentada para mostrar.</p>';
     return;
@@ -100,55 +100,244 @@ function displayAugmentedGrammar(augmentedGrammar) {
   Object.entries(grouped).forEach(([lhs, productions]) => {
     const nonTerminalDiv = document.createElement('div');
     nonTerminalDiv.className = 'grammar-group';
-    
+
     const header = document.createElement('h4');
     header.className = 'grammar-header';
     header.textContent = `${lhs}`;
     nonTerminalDiv.appendChild(header);
-    
+
     const productionsList = document.createElement('div');
     productionsList.className = 'productions-list';
-    
+
     productions.forEach(production => {
       const prodDiv = document.createElement('div');
       prodDiv.className = 'production-item';
       prodDiv.innerHTML = `<code>${production.rhs}</code>`;
       productionsList.appendChild(prodDiv);
     });
-    
+
     nonTerminalDiv.appendChild(productionsList);
     columnsContainer.appendChild(nonTerminalDiv);
   });
-  
+
   container.appendChild(columnsContainer);
+}
+
+async function downloadAsImage(elementId, filename) {
+  const element = document.getElementById(elementId);
+  if (!element) {
+    alert('No hay contenido para descargar');
+    return;
+  }
+
+  try {
+    const canvas = await html2canvas(element, {
+      backgroundColor: '#ffffff',
+      scale: 2, // Mayor calidad
+      logging: false,
+      useCORS: true
+    });
+    
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  } catch (error) {
+    console.error('Error al generar imagen:', error);
+    alert('Error al generar la imagen. Intenta con el formato DOT.');
+  }
 }
 
 function renderLR1Graph(dot) {
   const container = document.getElementById('lr1Graph');
   container.innerHTML = '';
+  
   if (!dot) {
     container.innerHTML = '<p class="no-data">No hay grafo LR(1) para mostrar.</p>';
     return;
   }
+
+  // Crear controles para el grafo
+  const controls = document.createElement('div');
+  controls.className = 'graph-controls';
+  controls.innerHTML = `
+    <button id="downloadPng" class="control-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+        <polyline points="21 15 16 10 5 21"></polyline>
+      </svg>
+      Descargar PNG
+    </button>
+    <button id="downloadDot" class="control-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="7 10 12 15 17 10"></polyline>
+        <line x1="12" y1="15" x2="12" y2="3"></line>
+      </svg>
+      Descargar DOT
+    </button>
+    <button id="viewText" class="control-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+        <polyline points="14,2 14,8 20,8"></polyline>
+      </svg>
+      Ver como Texto
+    </button>
+  `;
+  container.appendChild(controls);
+
+  const graphContainer = document.createElement('div');
+  graphContainer.className = 'graph-display';
+  graphContainer.id = 'graphDisplay';
+  container.appendChild(graphContainer);
+
+  // Intentar renderizar con viz.js
   try {
     const viz = new Viz();
     viz.renderSVGElement(dot)
       .then(svg => {
         svg.style.maxWidth = '100%';
-        container.appendChild(svg);
+        svg.style.height = 'auto';
+        svg.id = 'afdSvg';
+        graphContainer.appendChild(svg);
+        
+        // Agregar controles de zoom
+        addZoomControls(graphContainer, svg);
       })
       .catch(err => {
-        container.innerHTML = `<pre class="error">${String(err)}</pre>`;
+        console.error('Error viz.js:', err);
+        showTextualRepresentation(graphContainer, dot);
       });
   } catch (e) {
-    container.innerHTML = `<pre class="error">${String(e)}</pre>`;
+    console.error('Error al inicializar viz.js:', e);
+    showTextualRepresentation(graphContainer, dot);
   }
+
+  // Event listeners para controles
+  document.getElementById('downloadPng').addEventListener('click', () => {
+    downloadAsImage('graphDisplay', 'afd_lr1.png');
+  });
+
+  document.getElementById('downloadDot').addEventListener('click', () => {
+    downloadFile('afd_lr1.dot', dot);
+  });
+
+  document.getElementById('viewText').addEventListener('click', () => {
+    showTextualRepresentation(graphContainer, dot);
+  });
+}
+function addZoomControls(container, svg) {
+  const controls = document.createElement('div');
+  controls.className = 'zoom-controls';
+  controls.innerHTML = `
+    <button class="zoom-btn" data-action="zoom-in">+</button>
+    <button class="zoom-btn" data-action="zoom-out">-</button>
+    <button class="zoom-btn" data-action="reset">⟲</button>
+  `;
+  container.prepend(controls);
+
+  let scale = 1;
+  const svgElement = svg;
+
+  controls.addEventListener('click', (e) => {
+    const action = e.target.dataset.action;
+    if (!action) return;
+
+    if (action === 'zoom-in') {
+      scale = Math.min(scale + 0.2, 3);
+    } else if (action === 'zoom-out') {
+      scale = Math.max(scale - 0.2, 0.5);
+    } else if (action === 'reset') {
+      scale = 1;
+    }
+
+    svgElement.style.transform = `scale(${scale})`;
+    svgElement.style.transformOrigin = 'top left';
+  });
+
+  // Hacer el SVG arrastrable
+  makeDraggable(svgElement);
+}
+
+function makeDraggable(element) {
+  let isDragging = false;
+  let startX, startY, scrollLeft, scrollTop;
+  const container = element.parentElement;
+
+  element.style.cursor = 'grab';
+
+  element.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    element.style.cursor = 'grabbing';
+    startX = e.pageX - container.offsetLeft;
+    startY = e.pageY - container.offsetTop;
+    scrollLeft = container.scrollLeft;
+    scrollTop = container.scrollTop;
+  });
+
+  document.addEventListener('mouseup', () => {
+    isDragging = false;
+    element.style.cursor = 'grab';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    e.preventDefault();
+    const x = e.pageX - container.offsetLeft;
+    const y = e.pageY - container.offsetTop;
+    const walkX = (x - startX) * 2;
+    const walkY = (y - startY) * 2;
+    container.scrollLeft = scrollLeft - walkX;
+    container.scrollTop = scrollTop - walkY;
+  });
+}
+
+function showTextualRepresentation(container, dot) {
+  container.innerHTML = `
+    <div class="textual-graph">
+      <h4>Representación Textual del AFD LR(1)</h4>
+      <p class="info-message">
+        El grafo es demasiado grande para renderizar visualmente. 
+        Aquí está la representación en formato DOT:
+      </p>
+      <pre class="dot-code">${escapeHtml(dot)}</pre>
+      <p class="info-message">
+        Puedes copiar este código y visualizarlo en 
+        <a href="https://dreampuf.github.io/GraphvizOnline/" target="_blank">GraphvizOnline</a>
+        o <a href="https://edotor.net/" target="_blank">Edotor</a>
+      </p>
+    </div>
+  `;
+}
+
+function downloadFile(filename, content) {
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function escapeHtml(text) {
+  const map = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  };
+  return text.replace(/[&<>"']/g, m => map[m]);
 }
 
 function displayParsingSteps(steps) {
   const stepsList = document.getElementById('parsingSteps');
   stepsList.innerHTML = '';
-  
+
   if (!steps || steps.length === 0) {
     stepsList.innerHTML = '<p class="no-data">No hay pasos de parsing para mostrar.</p>';
     return;
@@ -157,15 +346,15 @@ function displayParsingSteps(steps) {
   // Crear tabla con diseño moderno que replica exactamente la imagen
   const tableContainer = document.createElement('div');
   tableContainer.className = 'trace-table-container';
-  
+
   const table = document.createElement('table');
   table.className = 'trace-table';
-  
+
   // Header con el título "Trace" centrado
   const titleRow = document.createElement('tr');
   titleRow.innerHTML = `<th colspan="4" class="trace-title">Trace</th>`;
   table.appendChild(titleRow);
-  
+
   // Sub-header con las columnas
   const headerRow = document.createElement('tr');
   headerRow.innerHTML = `
@@ -175,25 +364,25 @@ function displayParsingSteps(steps) {
     <th class="action-col">Action</th>
   `;
   table.appendChild(headerRow);
-  
+
   // Filas de datos
   steps.forEach((step, index) => {
     const row = document.createElement('tr');
     const stepNumber = step.step || (index + 1);
-    
+
     // Formatear la pila - mostrar estados con espacios
     let stackDisplay = step.stack;
     if (typeof stackDisplay === 'string') {
       // Reemplazar comas por espacios para mejor legibilidad
       stackDisplay = stackDisplay.replace(/,/g, ' ');
     }
-    
+
     // Formatear la entrada
     let inputDisplay = step.input;
     if (inputDisplay && inputDisplay !== '$') {
       inputDisplay = inputDisplay.replace(/\s+/g, ' ').trim();
     }
-    
+
     // Formatear la acción exactamente como en la imagen
     let actionDisplay = step.action;
     if (actionDisplay.includes('Shift')) {
@@ -207,7 +396,7 @@ function displayParsingSteps(steps) {
     } else if (actionDisplay.includes('ERROR')) {
       actionDisplay = 'error';
     }
-    
+
     row.innerHTML = `
       <td class="step-cell">${stepNumber}</td>
       <td class="stack-cell">${stackDisplay}</td>
@@ -216,7 +405,7 @@ function displayParsingSteps(steps) {
     `;
     table.appendChild(row);
   });
-  
+
   tableContainer.appendChild(table);
   stepsList.appendChild(tableContainer);
 }
@@ -234,10 +423,10 @@ function getActionClass(action) {
 function displayActionTable(actionTable) {
   const actionHeader = document.getElementById('actionHeader'); // <tr>
   const actionBody = document.getElementById('actionBody');     // <tbody>
-  
+
   actionHeader.innerHTML = '';
   actionBody.innerHTML = '';
-  
+
   if (!actionTable || Object.keys(actionTable).length === 0) {
     actionBody.innerHTML = '<tr><td colspan="100%">No hay tabla ACTION para mostrar.</td></tr>';
     return;
@@ -264,7 +453,6 @@ function displayActionTable(actionTable) {
     th.textContent = symbol;
     actionHeader.appendChild(th);
   });
-
   // 3) BODY: filas en el mismo orden de símbolos
   Object.keys(actionTable).sort((a, b) => parseInt(a) - parseInt(b)).forEach(state => {
     const row = document.createElement('tr');
@@ -276,38 +464,50 @@ function displayActionTable(actionTable) {
 
     symbols.forEach(symbol => {
       const cell = document.createElement('td');
-      const action = actionTable[state][symbol];      if (action) {
+      const action = actionTable[state][symbol];
+
+      if (action) {
         if (Array.isArray(action)) {
-          // Manejar tuplas como ('shift', 2) o ('reduce', 'R1')
-          const actionType = action[0];
-          const actionValue = action[1];
-            if (actionType === 'shift') {
-            cell.textContent = `S${actionValue}`;
+          const [actionType, value] = action;
+
+          if (actionType === 'conflict') {
+            // Conflicto: mostrar todas las acciones separadas por /
+            const conflictActions = value.map(([type, val]) => {
+              if (type === 'shift') return `s${val}`;
+              if (type === 'reduce') return `r${val + 1}`;
+              if (type === 'accept') return 'acc';
+              return type;
+            }).join('/');
+
+            cell.textContent = conflictActions;
+            cell.className = 'conflict-action';
+          } else if (actionType === 'shift') {
+            cell.textContent = `s${value}`;
             cell.className = 'shift-action';
           } else if (actionType === 'reduce') {
-            cell.textContent = `R${actionValue}`;
+            cell.textContent = `r${value + 1}`;
             cell.className = 'reduce-action';
           } else if (actionType === 'accept') {
-            cell.textContent = 'ACC';
+            cell.textContent = 'acc';
             cell.className = 'accept-action';
           } else {
-            cell.textContent = `${actionType} ${actionValue}`.trim();
+            cell.textContent = actionType;
           }
         } else {
           cell.textContent = action;
-          
+
           // Clasificar por contenido del string
-          if (cell.textContent.includes('shift') || cell.textContent.startsWith('S')) {
+          if (cell.textContent.includes('shift') || cell.textContent.startsWith('s')) {
             cell.className = 'shift-action';
-          } else if (cell.textContent.includes('reduce') || cell.textContent.startsWith('R')) {
+          } else if (cell.textContent.includes('reduce') || cell.textContent.startsWith('r')) {
             cell.className = 'reduce-action';
-          } else if (cell.textContent.includes('accept') || cell.textContent === 'ACC') {
+          } else if (cell.textContent === 'acc' || cell.textContent.includes('accept')) {
             cell.className = 'accept-action';
           }
         }
-      }
-
-      row.appendChild(cell);
+      } else {
+        cell.textContent = '';
+      }      row.appendChild(cell);
     });
 
     actionBody.appendChild(row);
@@ -317,7 +517,7 @@ function displayActionTable(actionTable) {
 function displayFirstSets(firstSets) {
   const firstSetsContainer = document.getElementById('firstSets');
   firstSetsContainer.innerHTML = '';
-  
+
   if (!firstSets || Object.keys(firstSets).length === 0) {
     firstSetsContainer.innerHTML = '<p class="no-data">No hay conjuntos FIRST para mostrar.</p>';
     return;
@@ -325,7 +525,7 @@ function displayFirstSets(firstSets) {
 
   const table = document.createElement('table');
   table.className = 'first-sets-table';
-  
+
   // Header
   const headerRow = document.createElement('tr');
   headerRow.innerHTML = `
@@ -333,7 +533,7 @@ function displayFirstSets(firstSets) {
     <th>FIRST</th>
   `;
   table.appendChild(headerRow);
-  
+
   // Body
   Object.entries(firstSets).forEach(([symbol, firstSet]) => {
     const row = document.createElement('tr');
@@ -343,7 +543,7 @@ function displayFirstSets(firstSets) {
     `;
     table.appendChild(row);
   });
-  
+
   firstSetsContainer.appendChild(table);
 }
 
@@ -419,7 +619,7 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
       // Mostrar solo el resultado del análisis
       const acceptanceEl = document.getElementById('acceptance');
       const stepsTitle = document.getElementById('stepsTitle');
-      
+
       if (data.accepted) {
         acceptanceEl.className = 'status success';
         acceptanceEl.innerHTML = '✅ Cadena aceptada por la gramática';
@@ -427,11 +627,11 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
         acceptanceEl.className = 'status error';
         acceptanceEl.innerHTML = '❌ Cadena rechazada por la gramática';
       }
-      
+
       acceptanceEl.style.display = 'block';
       stepsTitle.style.display = 'block';      // Mostrar pasos del parsing
       displayParsingSteps(data.parsing_steps);
-      
+
       // Mostrar árbol de derivación si existe
       if (data.parse_tree && data.accepted) {
         displayParseTree(data.parse_tree);
@@ -452,99 +652,101 @@ document.getElementById('analyzeBtn').addEventListener('click', async () => {
 function displayParseTree(tree) {
   const treeContainer = document.getElementById('parseTree');
   treeContainer.innerHTML = '';
-  
+
   if (!tree) {
-    treeContainer.innerHTML = '<p class="no-data">No hay árbol de derivación para mostrar.</p>';
+    treeContainer.innerHTML = '<p class="no-data">No se generó árbol de derivación.</p>';
     return;
   }
 
-  // Crear contenedor principal del árbol
+  // Agregar controles de descarga
+  const controls = document.createElement('div');
+  controls.className = 'graph-controls';
+  controls.innerHTML = `
+    <button id="downloadTreePng" class="control-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+        <polyline points="21 15 16 10 5 21"></polyline>
+      </svg>
+      Descargar PNG
+    </button>
+  `;
+  treeContainer.appendChild(controls);
+
   const treeWrapper = document.createElement('div');
   treeWrapper.className = 'tree-wrapper';
+  treeWrapper.id = 'treeDisplay';
   
-  // Función recursiva para crear la estructura del árbol
   function buildNode(node) {
     const nodeContainer = document.createElement('div');
     nodeContainer.className = 'tree-node-container';
-    
-    // Crear el círculo del nodo
+
     const nodeCircle = document.createElement('div');
     nodeCircle.className = 'tree-node-circle';
     nodeCircle.textContent = node.symbol;
     nodeContainer.appendChild(nodeCircle);
-    
-    // Si tiene hijos, crear las ramas
+
     if (node.children && node.children.length > 0) {
       const childrenContainer = document.createElement('div');
       childrenContainer.className = 'tree-children-container';
-      
+
       node.children.forEach((child, index) => {
         const childBranch = document.createElement('div');
         childBranch.className = 'tree-branch';
-        
-        // Línea vertical hacia abajo
+
         const verticalLine = document.createElement('div');
         verticalLine.className = 'tree-line-vertical';
         childBranch.appendChild(verticalLine);
-        
-        // Nodo hijo
+
         const childNode = buildNode(child);
         childBranch.appendChild(childNode);
-        
+
         childrenContainer.appendChild(childBranch);
       });
-      
-      // Línea horizontal que conecta los hijos
+
       if (node.children.length > 1) {
         const horizontalLine = document.createElement('div');
         horizontalLine.className = 'tree-line-horizontal';
         nodeContainer.appendChild(horizontalLine);
       }
-      
+
       nodeContainer.appendChild(childrenContainer);
     }
-    
+
     return nodeContainer;
   }
-  
+
   const treeRoot = buildNode(tree);
   treeWrapper.appendChild(treeRoot);
   treeContainer.appendChild(treeWrapper);
-}
 
-// Mejorar la experiencia del usuario con atajos de teclado
-document.addEventListener('keydown', (e) => {
-  if (e.ctrlKey && e.key === 'Enter') {
-    document.getElementById('parseBtn').click();
-  }
-});
-
-// Auto-resize de textareas
-document.querySelectorAll('textarea').forEach(textarea => {
-  textarea.addEventListener('input', function() {
-    this.style.height = 'auto';
-    this.style.height = this.scrollHeight + 'px';
+  // Event listener para descargar árbol como imagen
+  document.getElementById('downloadTreePng').addEventListener('click', () => {
+    downloadAsImage('treeDisplay', 'arbol_derivacion.png');
   });
-});
-
-// Funcionalidad de acordeón
-document.addEventListener('DOMContentLoaded', () => {
-  // Inicializar acordeón
-  initializeAccordion();
-});
-
+}
 function initializeAccordion() {
   const accordionHeaders = document.querySelectorAll('.accordion-header');
-  
-  accordionHeaders.forEach(header => {
+  console.log(`Inicializando accordion: encontrados ${accordionHeaders.length} headers`);
+
+  accordionHeaders.forEach((header, index) => {
+    const sectionId = header.getAttribute('data-section');
+    console.log(`Header ${index}: data-section="${sectionId}"`);
+    
     header.addEventListener('click', () => {
-      const sectionId = header.getAttribute('data-section');
+      console.log(`Click en accordion header: ${sectionId}`);
       const content = document.getElementById(sectionId);
       const icon = header.querySelector('.accordion-icon');
       const container = header.parentElement;
-      
+
       if (content && icon && container) {
         toggleAccordionSection(header, content, icon, container);
+      } else {
+        console.log(`Elementos faltantes para ${sectionId}:`, {
+          content: !!content,
+          icon: !!icon, 
+          container: !!container
+        });
       }
     });
   });
@@ -552,14 +754,15 @@ function initializeAccordion() {
 
 function toggleAccordionSection(header, content, icon, container) {
   const isCollapsed = content.classList.contains('collapsed');
-  
+  console.log(`Toggle accordion: ${content.id}, actualmente ${isCollapsed ? 'colapsado' : 'expandido'}`);
+
   if (isCollapsed) {
     // Expandir
     content.classList.remove('collapsed');
     content.classList.add('expanding');
     header.classList.remove('collapsed');
     container.classList.remove('collapsed');
-    
+
     // Remover clase de animación después de que termine
     setTimeout(() => {
       content.classList.remove('expanding');
@@ -567,7 +770,7 @@ function toggleAccordionSection(header, content, icon, container) {
   } else {
     // Colapsar
     content.classList.add('collapsing');
-    
+
     setTimeout(() => {
       content.classList.add('collapsed');
       content.classList.remove('collapsing');
@@ -583,7 +786,7 @@ function expandSection(sectionId) {
   const content = document.getElementById(sectionId);
   const icon = header?.querySelector('.accordion-icon');
   const container = header?.parentElement;
-  
+
   if (header && content && content.classList.contains('collapsed')) {
     toggleAccordionSection(header, content, icon, container);
   }
@@ -592,13 +795,13 @@ function expandSection(sectionId) {
 // Función para colapsar todas las secciones
 function collapseAllSections() {
   const accordionHeaders = document.querySelectorAll('.accordion-header');
-  
+
   accordionHeaders.forEach(header => {
     const sectionId = header.getAttribute('data-section');
     const content = document.getElementById(sectionId);
     const icon = header.querySelector('.accordion-icon');
     const container = header.parentElement;
-    
+
     if (content && !content.classList.contains('collapsed')) {
       toggleAccordionSection(header, content, icon, container);
     }
@@ -608,13 +811,13 @@ function collapseAllSections() {
 // Función para expandir todas las secciones
 function expandAllSections() {
   const accordionHeaders = document.querySelectorAll('.accordion-header');
-  
+
   accordionHeaders.forEach(header => {
     const sectionId = header.getAttribute('data-section');
     const content = document.getElementById(sectionId);
     const icon = header.querySelector('.accordion-icon');
     const container = header.parentElement;
-    
+
     if (content && content.classList.contains('collapsed')) {
       toggleAccordionSection(header, content, icon, container);
     }
@@ -623,12 +826,15 @@ function expandAllSections() {
 
 // Event listeners para botones de control
 document.addEventListener('DOMContentLoaded', () => {
+  // Inicializar accordion
+  initializeAccordion();
+  
   // Botón expandir todo
   const expandAllBtn = document.getElementById('expandAllBtn');
   if (expandAllBtn) {
     expandAllBtn.addEventListener('click', expandAllSections);
   }
-  
+
   // Botón colapsar todo
   const collapseAllBtn = document.getElementById('collapseAllBtn');
   if (collapseAllBtn) {

@@ -2,10 +2,9 @@ import os
 import re
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS 
-# Obtener la ruta absoluta del directorio actual
+
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
-# --- Configuración del Servidor Flask ---
 app = Flask(__name__,
             static_folder=os.path.join(BASE_DIR, 'frontend'),
             template_folder=os.path.join(BASE_DIR, 'frontend'))
@@ -26,7 +25,7 @@ class Grammar:
             self.start_symbol = lhs
         self.non_terminals.add(lhs)
         self.productions.append((lhs, rhs))
-        # solo registramos lo que aparece en RHS; NO clasificamos aún
+        # solo registramos lo que aparece en RHS
         for s in rhs:
             self._rhs_symbols.add(s)
 
@@ -42,9 +41,12 @@ class Item:
         self.rhs = rhs
         self.dot_pos = dot_pos
         self.lookahead = lookahead
-        
     def __str__(self):
-        rhs_with_dot = self.rhs[:self.dot_pos] + ['•'] + self.rhs[self.dot_pos:]
+        # Para producciones epsilon, siempre mostrar como completo: S -> ε •
+        if self.rhs == ['ε']:
+            rhs_with_dot = ['ε', '•']
+        else:
+            rhs_with_dot = self.rhs[:self.dot_pos] + ['•'] + self.rhs[self.dot_pos:]
         return f"[{self.lhs} -> {' '.join(rhs_with_dot)}, {self.lookahead}]"
     
     def __eq__(self, other):
@@ -229,8 +231,7 @@ class LR1Parser:
                         self.goto_table[(state_id, symbol)] = new_state_id
                     else:
                         self.goto_table[(state_id, symbol)] = existing_state_id
-        
-        # Construir las tablas ACTION y GOTO
+          # Construir las tablas ACTION y GOTO
         self.build_action_table()
     
     def get_augmented_grammar(self):
@@ -238,37 +239,45 @@ class LR1Parser:
         augmented_productions = []
         
         for lhs, rhs in self.grammar.productions:
-            # Para cada producción, generar todas las posiciones del punto
-            for dot_pos in range(len(rhs) + 1):
-                rhs_with_dot = rhs[:dot_pos] + ['•'] + rhs[dot_pos:]
-                production_str = f"{lhs} -> {' '.join(rhs_with_dot)}"
+            # Para producciones epsilon, solo mostrar ε • (ya está completo)
+            if rhs == ['ε']:
+                production_str = f"{lhs} -> ε •"
                 augmented_productions.append({
                     "lhs": lhs,
-                    "rhs": ' '.join(rhs_with_dot),
+                    "rhs": "ε •",
                     "production": production_str
                 })
+            else:
+                # Para producciones normales, generar todas las posiciones del punto
+                for dot_pos in range(len(rhs) + 1):
+                    rhs_with_dot = rhs[:dot_pos] + ['•'] + rhs[dot_pos:]
+                    production_str = f"{lhs} -> {' '.join(rhs_with_dot)}"
+                    augmented_productions.append({
+                        "lhs": lhs,
+                        "rhs": ' '.join(rhs_with_dot),
+                        "production": production_str
+                    })
         
         return augmented_productions
-
+    
     def build_action_table(self):
-        """Construye la tabla ACTION"""
+        """Construye la tabla ACTION, detectando conflictos shift/reduce"""
         for state_id, state in enumerate(self.states):
             self.action_table[state_id] = {}
             
             for item in state:
-                if item.dot_pos < len(item.rhs):
-                    # SHIFT
-                    next_symbol = item.rhs[item.dot_pos]
-                    if next_symbol in self.grammar.terminals:
-                        if (state_id, next_symbol) in self.goto_table:
-                            next_state = self.goto_table[(state_id, next_symbol)]
-                            self.action_table[state_id][next_symbol] = ('shift', next_state)
-                else:
+                # Para producciones epsilon (S -> ε), el ítem está completo inmediatamente
+                # porque no hay nada que desplazar después de ε
+                is_epsilon_production = (item.rhs == ['ε'])
+                is_complete = (item.dot_pos >= len(item.rhs)) or is_epsilon_production
+                
+                if is_complete:
                     # REDUCE o ACCEPT
                     if item.lhs == self.augmented_start and item.lookahead == '$':
-                        self.action_table[state_id]['$'] = ('accept', None)
+                        # ACCEPT
+                        self._add_action(state_id, '$', 'accept', None)
                     else:
-                        # Encontrar el número de la producción
+                        # REDUCE - Encontrar el número de la producción
                         prod_num = None
                         for i, (lhs, rhs) in enumerate(self.grammar.productions):
                             if lhs == item.lhs and rhs == item.rhs:
@@ -276,25 +285,66 @@ class LR1Parser:
                                 break
                         
                         if prod_num is not None:
-                            self.action_table[state_id][item.lookahead] = ('reduce', prod_num)
-
+                            self._add_action(state_id, item.lookahead, 'reduce', prod_num)
+                
+                elif item.dot_pos < len(item.rhs):
+                    # SHIFT (solo si no es epsilon y el símbolo es terminal)
+                    next_symbol = item.rhs[item.dot_pos]
+                    if next_symbol != 'ε' and next_symbol in self.grammar.terminals:
+                        if (state_id, next_symbol) in self.goto_table:
+                            next_state = self.goto_table[(state_id, next_symbol)]
+                            self._add_action(state_id, next_symbol, 'shift', next_state)
+    
+    def _add_action(self, state_id, symbol, action_type, value):
+        """Agrega una acción a la tabla, detectando conflictos"""
+        if symbol in self.action_table[state_id]:
+            # Ya existe una acción para este símbolo - CONFLICTO
+            existing = self.action_table[state_id][symbol]
+            if isinstance(existing, tuple) and existing[0] == 'conflict':
+                # Ya es un conflicto, agregar esta nueva acción
+                self.action_table[state_id][symbol] = (
+                    'conflict',
+                    existing[1] + [(action_type, value)]
+                )
+            else:
+                # Crear un nuevo conflicto
+                self.action_table[state_id][symbol] = (
+                    'conflict',
+                    [existing, (action_type, value)]
+                )
+        else:
+            # No hay conflicto, agregar la acción normalmente
+            self.action_table[state_id][symbol] = (action_type, value)
+    
     def to_dot(self):
+        """Genera un grafo DOT simplificado del AFD LR(1)"""
         def esc(s: str) -> str:
-            return s.replace('"', r'\"')
+            return s.replace('"', r'\"').replace('\n', '\\n')
 
         lines = []
         lines.append('digraph LR1 {')
         lines.append('  rankdir=LR;')
-        lines.append('  node [shape=box, style="rounded,filled", fillcolor="#ffffff", fontname="Inter"];')
-        lines.append('  edge [fontname="Inter"];')
+        lines.append('  node [shape=box, style="rounded,filled", fillcolor="#ffffff", fontsize=9, fontname="monospace"];')
+        lines.append('  edge [fontsize=8];')
+        lines.append('  graph [pad="0.5", nodesep="0.5", ranksep="1"];')
 
-        # Nodos: cada estado con sus ítems
+        # Mostrar estados de forma más compacta
         for i, state in enumerate(self.states):
-            items_txt = "\\n".join(esc(str(item)) for item in state)
+            items_list = list(state)
+            
+            # Limitar el número de ítems mostrados por estado para reducir tamaño
+            max_items = 5  # Mostrar máximo 5 ítems
+            
+            if len(items_list) <= max_items:
+                items_txt = "\\n".join(esc(str(item)) for item in items_list)
+            else:
+                items_txt = "\\n".join(esc(str(item)) for item in items_list[:max_items])
+                items_txt += f"\\n... +{len(items_list) - max_items} más"
+            
             label = f'I{i}\\n{items_txt}'
             lines.append(f'  I{i} [label="{label}"];')
 
-        # Aristas: desde goto_table
+        # Aristas
         for (sid, symbol), tid in self.goto_table.items():
             lines.append(f'  I{sid} -> I{tid} [label="{esc(symbol)}"];')
 
@@ -303,36 +353,60 @@ class LR1Parser:
     
     def parse(self, input_string):
         """Analiza una cadena usando el parser LR(1)"""
-        # Tokenizar la entrada - manejar paréntesis correctamente
+        # Para gramáticas simples como S -> ( S ) S, usar tokenización directa
         tokens = []
-        i = 0
-        while i < len(input_string):
-            char = input_string[i]
+        
+        for char in input_string:
             if char.isspace():
-                i += 1
                 continue
             elif char in '()':
                 tokens.append(char)
-                i += 1
             else:
-                # Recoger caracteres alfanuméricos
-                token = ''
-                while i < len(input_string) and not input_string[i].isspace() and input_string[i] not in '()':
-                    token += input_string[i]
-                    i += 1
-                if token:
-                    tokens.append(token)
+                # Para otros casos, usar el tokenizador completo
+                # Resetear y usar el tokenizador original
+                tokens = []
+                i = 0
+                keywords = {'var', 'int', 'float', 'bool', 'if', 'else', 'while', 'for', 'true', 'false'}
+                
+                while i < len(input_string):
+                    ch = input_string[i]
+                    
+                    if ch.isspace():
+                        i += 1
+                        continue
+                    elif ch in '(){}=;,:+-*/':
+                        tokens.append(ch)
+                        i += 1
+                    elif ch.isdigit():
+                        num = ''
+                        while i < len(input_string) and (input_string[i].isdigit() or input_string[i] == '.'):
+                            num += input_string[i]
+                            i += 1
+                        tokens.append('num')
+                    elif ch.isalpha() or ch == '_':
+                        identifier = ''
+                        while i < len(input_string) and (input_string[i].isalnum() or input_string[i] == '_'):
+                            identifier += input_string[i]
+                            i += 1
+                        
+                        if identifier in keywords:
+                            tokens.append(identifier)
+                        else:
+                            tokens.append('id')
+                    else:
+                        i += 1
+                break
         
         tokens.append('$')
         
-        stack = [0]  # Pila de estados
-        symbol_stack = []  # Pila de símbolos para mostrar en la tabla
+        stack = [0]
+        symbol_stack = []
         steps = []
-        parse_tree_stack = []  # Para construir el árbol
+        parse_tree_stack = []
         
         i = 0
         step_count = 0
-        while i < len(tokens) and step_count < 100:  # Límite para evitar bucles infinitos
+        while i < len(tokens) and step_count < 1000:  # Aumentar límite
             step_count += 1
             state = stack[-1]
             token = tokens[i]
@@ -340,70 +414,86 @@ class LR1Parser:
             if state not in self.action_table or token not in self.action_table[state]:
                 steps.append({
                     "step": step_count,
-                    "stack": ' '.join(symbol_stack),
+                    "stack": ' '.join(symbol_stack) if symbol_stack else '0',
                     "input": ' '.join(tokens[i:]),
                     "action": "ERROR"
                 })
                 return False, steps, None
             
-            action, value = self.action_table[state][token]
+            action_data = self.action_table[state][token]
+            
+            # Manejar conflictos (tomar la primera acción)
+            if isinstance(action_data, (list, tuple)) and len(action_data) > 0:
+                if action_data[0] == 'conflict':
+                    # Tomar la primera acción del conflicto
+                    action, value = action_data[1][0] if isinstance(action_data[1], list) else action_data
+                else:
+                    action, value = action_data[0], action_data[1] if len(action_data) > 1 else None
+            else:
+                return False, steps, None
             
             if action == 'shift':
                 stack.append(value)
                 symbol_stack.append(token)
-                # Crear nodo hoja para el árbol
                 parse_tree_stack.append({
                     "symbol": token,
                     "children": []
                 })
                 steps.append({
                     "step": step_count,
-                    "stack": ' '.join(symbol_stack),
+                    "stack": ' '.join(symbol_stack) if symbol_stack else '0',
                     "input": ' '.join(tokens[i:]),
                     "action": f"s{value}"
                 })
                 i += 1
+                
             elif action == 'reduce':
                 lhs, rhs = self.grammar.productions[value]
                 
-                # Recoger hijos para el árbol
-                children = []
-                for _ in range(len(rhs)):
-                    if symbol_stack:
-                        symbol_stack.pop()
-                    if stack:
-                        stack.pop()
-                    if parse_tree_stack:
-                        children.insert(0, parse_tree_stack.pop())
+                # Para producciones epsilon, no hacer pop
+                if rhs != ['ε']:
+                    children = []
+                    for _ in range(len(rhs)):
+                        if symbol_stack:
+                            symbol_stack.pop()
+                        if stack:
+                            stack.pop()
+                        if parse_tree_stack:
+                            children.insert(0, parse_tree_stack.pop())
+                    
+                    parent_node = {
+                        "symbol": lhs,
+                        "children": children
+                    }
+                else:
+                    # Producción epsilon
+                    parent_node = {
+                        "symbol": lhs,
+                        "children": [{"symbol": "ε", "children": []}]
+                    }
                 
-                # Crear nodo padre
-                parent_node = {
-                    "symbol": lhs,
-                    "children": children
-                }
                 parse_tree_stack.append(parent_node)
                 symbol_stack.append(lhs)
                 
-                # GOTO
                 current_state = stack[-1] if stack else 0
                 if (current_state, lhs) in self.goto_table:
                     stack.append(self.goto_table[(current_state, lhs)])
                 
                 steps.append({
                     "step": step_count,
-                    "stack": ' '.join(symbol_stack),
+                    "stack": ' '.join(symbol_stack) if symbol_stack else '0',
                     "input": ' '.join(tokens[i:]),
-                    "action": f"r{value + 1}"  # +1 para que comience en r1, r2, etc.
+                    "action": f"r{value + 1}"
                 })
+                
             elif action == 'accept':
                 steps.append({
                     "step": step_count,
-                    "stack": ' '.join(symbol_stack),
+                    "stack": ' '.join(symbol_stack) if symbol_stack else '0',
                     "input": '$',
                     "action": "acc"
                 })
                 
-                # El árbol final está en la cima de parse_tree_stack
                 tree = parse_tree_stack[-1] if parse_tree_stack else None
                 return True, steps, tree
         
@@ -565,10 +655,26 @@ def handle_parse_request():
         for (state_id, symbol), target_state in parser.goto_table.items():
             key = f"{state_id},{symbol}"
             goto_table_json[key] = target_state
-        
-        # Filtrar FIRST sets solo para no terminales
+          # Filtrar FIRST sets solo para no terminales
         first_sets_nonterminals = {k: list(v) for k, v in parser.first_sets.items() 
                                    if k in grammar.non_terminals}
+        
+        # Convertir action_table a formato JSON-serializable
+        serialized_action_table = {}
+        for state_id, actions in parser.action_table.items():
+            serialized_action_table[state_id] = {}
+            for symbol, action in actions.items():
+                # Convertir tuplas a listas para JSON
+                if isinstance(action, tuple):
+                    serialized_action_table[state_id][symbol] = list(action)
+                    # Si hay una lista anidada de acciones (conflictos), convertirla también
+                    if action[0] == 'conflict' and isinstance(action[1], list):
+                        serialized_action_table[state_id][symbol][1] = [
+                            list(a) if isinstance(a, tuple) else a 
+                            for a in action[1]
+                        ]
+                else:
+                    serialized_action_table[state_id][symbol] = action
         
         return jsonify({
             "accepted": accepted,
@@ -576,7 +682,7 @@ def handle_parse_request():
             "first_sets": first_sets_nonterminals,
             "first_table": parser.first_table,
             "canonical_collection": states_data,
-            "parsing_table_action": parser.action_table,
+            "parsing_table_action": serialized_action_table,
             "parsing_table_goto": goto_table_json,
             "parsing_steps": parse_steps,
             "parse_tree": parse_tree,
