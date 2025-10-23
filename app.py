@@ -2,8 +2,6 @@ import os
 import re
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS 
-import os
-import re
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
@@ -79,7 +77,8 @@ class LR1Parser:
         
         for non_terminal in self.grammar.non_terminals:
             self.first_sets[non_terminal] = set()
-          # Iterativo hasta que no haya cambios
+        
+        # Iterativo hasta que no haya cambios
         changed = True
         while changed:
             changed = False
@@ -295,94 +294,28 @@ class LR1Parser:
                         if (state_id, next_symbol) in self.goto_table:
                             next_state = self.goto_table[(state_id, next_symbol)]
                             self._add_action(state_id, next_symbol, 'shift', next_state)
+    
     def _add_action(self, state_id, symbol, action_type, value):
-        """Agrega una acción a la tabla, detectando conflictos REALES"""
+        """Agrega una acción a la tabla, detectando conflictos"""
         if symbol in self.action_table[state_id]:
+            # Ya existe una acción para este símbolo - CONFLICTO
             existing = self.action_table[state_id][symbol]
-            
-            # Si es una tupla simple (acción, valor)
-            if isinstance(existing, tuple) and len(existing) == 2:
-                existing_action, existing_value = existing
-                
-                # Si es exactamente la misma acción, ignorar (no es conflicto)
-                if existing_action == action_type and existing_value == value:
-                    return
-                
-                # Solo si son acciones diferentes, marcar conflicto
+            if isinstance(existing, tuple) and existing[0] == 'conflict':
+                # Ya es un conflicto, agregar esta nueva acción
+                self.action_table[state_id][symbol] = (
+                    'conflict',
+                    existing[1] + [(action_type, value)]
+                )
+            else:
+                # Crear un nuevo conflicto
                 self.action_table[state_id][symbol] = (
                     'conflict',
                     [existing, (action_type, value)]
                 )
-            elif isinstance(existing, tuple) and existing[0] == 'conflict':
-                # Ya es un conflicto, verificar si la nueva acción ya existe
-                conflict_actions = existing[1]
-                new_action = (action_type, value)
-                
-                # Solo agregar si no existe ya
-                if new_action not in conflict_actions:
-                    self.action_table[state_id][symbol] = (
-                        'conflict',
-                        conflict_actions + [new_action]
-                    )
         else:
             # No hay conflicto, agregar la acción normalmente
             self.action_table[state_id][symbol] = (action_type, value)
     
-    def analyze_grammar_type(self):
-        """Analiza si la gramática es LR(1) y clasifica los conflictos"""
-        conflicts = []
-        is_lr1 = True
-        
-        for state_id, actions in self.action_table.items():
-            for symbol, action in actions.items():
-                if isinstance(action, tuple) and action[0] == 'conflict':
-                    is_lr1 = False
-                    conflict_actions = action[1]
-                    
-                    # Clasificar tipo de conflicto
-                    shift_actions = []
-                    reduce_actions = []
-                    
-                    for act_type, act_value in conflict_actions:
-                        if act_type == 'shift':
-                            shift_actions.append(act_value)
-                        elif act_type == 'reduce':
-                            reduce_actions.append(act_value + 1)  # +1 para mostrar R1, R2, etc.
-                        elif act_type == 'accept':
-                            shift_actions.append('acc')
-                    
-                    # Determinar tipo de conflicto
-                    conflict_type = ""
-                    conflict_description = ""
-                    
-                    if len(shift_actions) > 1:
-                        # Conflicto shift/shift
-                        conflict_type = "shift/shift"
-                        conflict_description = f"s{'/s'.join(map(str, shift_actions))}"
-                    elif len(reduce_actions) > 1:
-                        # Conflicto reduce/reduce
-                        conflict_type = "reduce/reduce"
-                        conflict_description = f"r{'/r'.join(map(str, reduce_actions))}"
-                    elif len(shift_actions) >= 1 and len(reduce_actions) >= 1:
-                        # Conflicto shift/reduce
-                        conflict_type = "shift/reduce"
-                        shift_part = '/'.join([f"s{s}" if s != 'acc' else 'acc' for s in shift_actions])
-                        reduce_part = '/'.join([f"r{r}" for r in reduce_actions])
-                        conflict_description = f"{shift_part}/{reduce_part}"
-                    
-                    conflicts.append({
-                        "state": state_id,
-                        "symbol": symbol,
-                        "type": conflict_type,
-                        "description": conflict_description,
-                        "actions": conflict_actions
-                    })
-        
-        return {
-            "is_lr1": is_lr1,
-            "conflicts": conflicts,
-            "grammar_type": "LR(1)" if is_lr1 else "No es LR(1)"
-        }
     def to_dot(self):
         """Genera un grafo DOT simplificado del AFD LR(1)"""
         def esc(s: str) -> str:
@@ -391,16 +324,22 @@ class LR1Parser:
         lines = []
         lines.append('digraph LR1 {')
         lines.append('  rankdir=LR;')
-        lines.append('  node [shape=box, style="rounded,filled", fillcolor="#ffffff", fontsize=8, fontname="monospace"];')
+        lines.append('  node [shape=box, style="rounded,filled", fillcolor="#ffffff", fontsize=9, fontname="monospace"];')
         lines.append('  edge [fontsize=8];')
         lines.append('  graph [pad="0.5", nodesep="0.5", ranksep="1"];')
 
-        # Mostrar TODOS los estados con TODOS los ítems (sin truncar)
+        # Mostrar estados de forma más compacta
         for i, state in enumerate(self.states):
             items_list = list(state)
             
-            # Mostrar TODOS los ítems sin limitación
-            items_txt = "\\n".join(esc(str(item)) for item in items_list)
+            # Limitar el número de ítems mostrados por estado para reducir tamaño
+            max_items = 5  # Mostrar máximo 5 ítems
+            
+            if len(items_list) <= max_items:
+                items_txt = "\\n".join(esc(str(item)) for item in items_list)
+            else:
+                items_txt = "\\n".join(esc(str(item)) for item in items_list[:max_items])
+                items_txt += f"\\n... +{len(items_list) - max_items} más"
             
             label = f'I{i}\\n{items_txt}'
             lines.append(f'  I{i} [label="{label}"];')
@@ -736,8 +675,6 @@ def handle_parse_request():
                         ]
                 else:
                     serialized_action_table[state_id][symbol] = action
-          # Analizar tipo de gramática
-        grammar_analysis = parser.analyze_grammar_type()
         
         return jsonify({
             "accepted": accepted,
@@ -749,8 +686,7 @@ def handle_parse_request():
             "parsing_table_goto": goto_table_json,
             "parsing_steps": parse_steps,
             "parse_tree": parse_tree,
-            "lr1_dot": parser.to_dot(),   # AFD
-            "grammar_analysis": grammar_analysis  # Análisis de la gramática
+            "lr1_dot": parser.to_dot()   # AFD
         })
 
     except Exception as e:
