@@ -362,7 +362,7 @@ body {
 .parsing-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;           /* Alinea columnas de thead/tbody */
+  table-layout: auto;           /* Permite redimensionar columnas */
   border: 1px solid var(--border);
 }
 
@@ -379,6 +379,32 @@ body {
   top: 0;                        /* header pegajoso */
   z-index: 2;                    /* sobre celdas */
   white-space: nowrap;
+  resize: horizontal;            /* Permite redimensionar horizontalmente */
+  overflow: hidden;
+  min-width: 60px;              /* Ancho mínimo */
+  max-width: 300px;             /* Ancho máximo */
+}
+
+/* Resizer para las columnas */
+.parsing-table th {
+  position: relative;
+}
+
+.parsing-table th::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: transparent;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.parsing-table th::after:hover {
+  background: var(--primary-color);
+  opacity: 0.5;
 }
 
 /* Celdas */
@@ -391,6 +417,8 @@ body {
   white-space: nowrap;           /* evita saltos raros */
   overflow: hidden;
   text-overflow: ellipsis;       /* si el contenido es largo */
+  min-width: 60px;              /* Ancho mínimo igual que th */
+  max-width: 300px;             /* Ancho máximo igual que th */
 }
 
 /* Primera columna (estado) pegajosa */
@@ -658,6 +686,29 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 1.5rem;
   margin-top: 1rem;
+  max-height: 400px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 0.5rem;
+}
+
+/* Scroll personalizado para gramática aumentada */
+.augmented-grammar-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.augmented-grammar-container::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.augmented-grammar-container::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.augmented-grammar-container::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 .grammar-group {
@@ -1171,7 +1222,6 @@ body {
   animation: slideUp 0.4s ease;
 }
 
-
 /* Controles del grafo */
 .graph-controls {
   display: flex;
@@ -1297,4 +1347,115 @@ body {
 .tree-wrapper::-webkit-scrollbar-thumb:hover,
 .dot-code::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+/* Análisis de Gramática */
+.grammar-analysis-container {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  border: 2px solid var(--border);
+  border-radius: 0.75rem;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+.grammar-type {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.grammar-type.lr1 {
+  color: var(--success-color);
+}
+
+.grammar-type.non-lr1 {
+  color: var(--error-color);
+}
+
+.conflicts-section {
+  margin-top: 1.5rem;
+}
+
+.conflicts-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 0.5rem;
+}
+
+.conflict-item {
+  background: white;
+  border: 1px solid #ffc107;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  box-shadow: 0 2px 4px rgba(255, 193, 7, 0.1);
+}
+
+.conflict-header {
+  display: flex;
+  justify-content: between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.conflict-type {
+  font-weight: 600;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.conflict-type.shift-shift {
+  background: rgba(59, 130, 246, 0.1);
+  color: #1d4ed8;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.conflict-type.reduce-reduce {
+  background: rgba(124, 58, 237, 0.1);
+  color: #7c3aed;
+  border: 1px solid rgba(124, 58, 237, 0.3);
+}
+
+.conflict-type.shift-reduce {
+  background: rgba(245, 101, 101, 0.1);
+  color: #dc2626;
+  border: 1px solid rgba(245, 101, 101, 0.3);
+}
+
+.conflict-location {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.conflict-description {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  background: #fff3cd;
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  border: 1px solid #ffc107;
+  margin-top: 0.5rem;
+  font-weight: 600;
+}
+
+.no-conflicts {
+  text-align: center;
+  padding: 2rem;
+  color: var(--success-color);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
 }
