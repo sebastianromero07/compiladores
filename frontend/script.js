@@ -69,11 +69,83 @@ function displayResults(data) {
 
   // 4. Mostrar tabla ACTION
   displayActionTable(data.parsing_table_action);
+  
+  // 5. Mostrar análisis de gramática
+  if (data.grammar_analysis) {
+    displayGrammarAnalysis(data.grammar_analysis);
+  }
+  
   expandSection('actionTableContent');
 
   // Mostrar resultados
   document.getElementById('result').style.display = 'block';
 }
+
+function displayGrammarAnalysis(analysis) {
+  const container = document.getElementById('grammarAnalysis');
+  container.innerHTML = '';
+
+  // Crear el contenedor principal
+  const analysisDiv = document.createElement('div');
+  analysisDiv.className = 'grammar-analysis';
+
+  // Título del tipo de gramática
+  const grammarTypeDiv = document.createElement('div');
+  grammarTypeDiv.className = `grammar-type ${analysis.is_lr1 ? 'lr1' : 'non-lr1'}`;
+  
+  const icon = analysis.is_lr1 ? '✅' : '❌';
+  grammarTypeDiv.innerHTML = `${icon} ${analysis.grammar_type}`;
+  analysisDiv.appendChild(grammarTypeDiv);
+
+  // Si hay conflictos, mostrarlos
+  if (!analysis.is_lr1 && analysis.conflicts && analysis.conflicts.length > 0) {
+    const conflictsSection = document.createElement('div');
+    conflictsSection.className = 'conflicts-section';
+
+    const conflictsTitle = document.createElement('h4');
+    conflictsTitle.className = 'conflicts-title';
+    conflictsTitle.textContent = `Conflictos encontrados (${analysis.conflicts.length}):`;
+    conflictsSection.appendChild(conflictsTitle);
+
+    analysis.conflicts.forEach(conflict => {
+      const conflictItem = document.createElement('div');
+      conflictItem.className = 'conflict-item';
+
+      const conflictHeader = document.createElement('div');
+      conflictHeader.className = 'conflict-header';
+
+      const conflictType = document.createElement('span');
+      conflictType.className = `conflict-type ${conflict.type.replace('/', '-')}`;
+      conflictType.textContent = conflict.type;
+
+      const conflictLocation = document.createElement('span');
+      conflictLocation.className = 'conflict-location';
+      conflictLocation.textContent = `Estado ${conflict.state}, símbolo "${conflict.symbol}"`;
+
+      conflictHeader.appendChild(conflictType);
+      conflictHeader.appendChild(conflictLocation);
+
+      const conflictDescription = document.createElement('div');
+      conflictDescription.className = 'conflict-description';
+      conflictDescription.textContent = conflict.description;
+
+      conflictItem.appendChild(conflictHeader);
+      conflictItem.appendChild(conflictDescription);
+
+      conflictsSection.appendChild(conflictItem);
+    });
+
+    analysisDiv.appendChild(conflictsSection);
+  } else if (analysis.is_lr1) {
+    const noConflicts = document.createElement('div');
+    noConflicts.className = 'no-conflicts';
+    noConflicts.innerHTML = '🎉 La gramática es LR(1) - Sin conflictos';
+    analysisDiv.appendChild(noConflicts);
+  }
+
+  container.appendChild(analysisDiv);
+}
+
 function displayAugmentedGrammar(augmentedGrammar) {
   const container = document.getElementById('augmentedGrammar');
   container.innerHTML = '';
@@ -841,3 +913,93 @@ document.addEventListener('DOMContentLoaded', () => {
     collapseAllBtn.addEventListener('click', collapseAllSections);
   }
 });
+
+// Función para hacer las columnas de la tabla redimensionables
+function makeTableColumnsResizable(tableId) {
+  const table = document.getElementById(tableId);
+  if (!table) return;
+
+  const headers = table.querySelectorAll('th');
+  headers.forEach((header, index) => {
+    // Crear el handle de redimensionamiento
+    const resizer = document.createElement('div');
+    resizer.className = 'column-resizer';
+    resizer.style.cssText = `
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      background: transparent;
+      cursor: col-resize;
+      z-index: 10;
+    `;
+
+    header.style.position = 'relative';
+    header.appendChild(resizer);
+
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    resizer.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      startX = e.pageX;
+      startWidth = header.offsetWidth;
+      
+      document.addEventListener('mousemove', handleResize);
+      document.addEventListener('mouseup', stopResize);
+      
+      e.preventDefault();
+    });
+
+    function handleResize(e) {
+      if (!isResizing) return;
+      
+      const newWidth = startWidth + (e.pageX - startX);
+      const minWidth = 60;
+      const maxWidth = 300;
+      
+      if (newWidth >= minWidth && newWidth <= maxWidth) {
+        header.style.width = newWidth + 'px';
+        
+        // También ajustar las celdas de la misma columna
+        const rows = table.querySelectorAll('tbody tr');
+        rows.forEach(row => {
+          const cell = row.cells[index];
+          if (cell) {
+            cell.style.width = newWidth + 'px';
+          }
+        });
+      }
+    }
+
+    function stopResize() {
+      isResizing = false;
+      document.removeEventListener('mousemove', handleResize);
+      document.removeEventListener('mouseup', stopResize);
+    }
+
+    // Efecto visual al hover
+    resizer.addEventListener('mouseenter', () => {
+      resizer.style.background = 'var(--primary-color)';
+      resizer.style.opacity = '0.5';
+    });
+
+    resizer.addEventListener('mouseleave', () => {
+      if (!isResizing) {
+        resizer.style.background = 'transparent';
+      }
+    });
+  });
+}
+
+// Función mejorada para mostrar la tabla ACTION con columnas redimensionables
+function displayActionTableWithResize(actionTable) {
+  displayActionTable(actionTable);
+  
+  // Hacer las columnas redimensionables después de crear la tabla
+  setTimeout(() => {
+    makeTableColumnsResizable('actionTable');
+  }, 100);
+}
